@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//home/joehays/dev/mars-v2/docs/wiki/**)",
+      "Bash(git checkout:*)",
+      "Read(//home/joehays/dev/mars-v2/**)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nUpdate P1 plan: Completed Phase 1.2 architecture research\n\n- Studied LiteLLM provider structure (llms/{provider_name}/ pattern)\n- Identified base class: BaseLLM in litellm/llms/base.py\n- Examined providers: Anthropic (chat/handler.py), Azure (completion/handler.py)\n- Documented interface requirements and transformation pattern\n- Confirmed custom parameter support via optional_params dict\n- Confirmed TLS configuration via httpx client sessions\n- Decision: Provider location litellm/llms/asksage/\n- Decision: Authentication via Bearer token in headers\n- Decision: Custom params for dataset and persona support\n\nPhase 1.1 and 1.2 completed successfully. Ready for Phase 2 implementation.\n\n🤖 Generated with Claude Code\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nUpdate P1 plan: Completed Phase 1.3 requirements mapping\n\n- Reviewed ASKSAGE_API.md and CAPRA_ENDPOINT.md documentation\n- Created comprehensive API parameter mapping table\n- Documented required vs. optional vs. deferred features\n- Clarified authentication: Bearer token for both standard and CAPRA\n- Clarified TLS: DoD CA chain required for CAPRA only\n- Mapped LiteLLM parameters to AskSage API parameters\n- Identified environment variables: ASKSAGE_API_KEY, ASKSAGE_API_BASE, ASKSAGE_CA_CERT_PATH\n- Defined model naming convention: asksage/{model_name}\n- Decided on initial scope: text-only /server/query endpoint\n- Deferred file upload and streaming to Phase 2.2\n\nPhase 1 (Research & Setup) completed successfully! Ready for Phase 2 implementation.\n\n🤖 Generated with Claude Code\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git commit -m \"$(cat <<''EOF''\nfeat: Add AskSage provider for LiteLLM\n\nImplements AskSage/CAPRA provider to enable access to AskSage endpoints\nthrough LiteLLM''s unified interface.\n\n**Provider Structure:**\n- litellm/llms/asksage/common_utils.py - Error handling\n- litellm/llms/asksage/chat/transformation.py - Request/response transformation\n- litellm/llms/asksage/chat/handler.py - Main completion handler\n- litellm/llms/asksage/__init__.py - Provider exports\n\n**Features:**\n- Bearer token authentication (standard AskSage and CAPRA)\n- DoD TLS certificate support for CAPRA endpoints\n- Text-only completion via /server/query endpoint\n- Model selection and temperature control\n- Custom parameters: dataset (RAG context), persona\n- Token usage tracking\n- Async completion support\n\n**Configuration:**\n- ASKSAGE_API_KEY - Bearer token for authentication\n- ASKSAGE_API_BASE - Base URL (default: CAPRA endpoint)\n- ASKSAGE_CA_CERT_PATH - DoD CA certificate chain (CAPRA only)\n\n**Usage:**\n```python\nfrom litellm import completion\n\nresponse = completion(\n    model=\"asksage/google-claude-4-opus\",\n    messages=[{\"role\": \"user\", \"content\": \"Hello!\"}],\n    dataset=[\"ds_12345\"],  # Optional RAG context\n    persona=\"researcher\"   # Optional AI personality\n)\n```\n\n**Registered:**\n- Added ASKSAGE to LlmProviders enum\n- Added routing logic in main.py\n- Added model definitions in __init__.py\n\nCloses #1 for MARS project integration\nEOF\n)\")",
+      "Bash(git commit -m \"$(cat <<''EOF''\nUpdate P1 plan: Completed Phase 2.1 core implementation\n\n- Implemented complete AskSage provider for LiteLLM\n- Created all provider files (handler, transformation, error handling)\n- Registered provider in LiteLLM (enum, routing, models)\n- Implemented all required features:\n  - Bearer token authentication\n  - DoD TLS certificate support\n  - Text completion via /server/query\n  - Model selection and temperature control\n  - Dataset (RAG) and persona parameters\n  - Token usage tracking\n  - Async completion support\n- Committed to feat/asksage-provider branch (31f9d181c51d)\n- 8 files changed, 619 insertions(+)\n\nPhase 2.1 complete! Ready for Phase 2.2 (testing) or Phase 3 (PR).\n\n🤖 Generated with Claude Code\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(chmod:*)",
+      "Bash(python test:*)",
+      "Bash(python3:*)",
+      "Bash(poetry run:*)",
+      "Bash(/usr/bin/python3:*)",
+      "Bash(make:*)",
+      "Bash(PYTHONPATH=. /usr/bin/python3 test_asksage_provider.py)",
+      "Bash(pip3 install:*)",
+      "Bash(export PYTHONPATH=.)",
+      "Read(//home/joehays/**)",
+      "Bash(git commit:*)",
+      "Bash(env)",
+      "Bash(export ASKSAGE_API_KEY=\"$CAPRA_API_TOKEN\")",
+      "Bash(export ASKSAGE_CA_CERT_PATH=\"$HOME/dev/joe-docs/dev-ops/Certificates_PKCS7_v5_14_DoD/DoD_PKE_CA_chain.pem\")",
+      "Bash(./run_functional_test.sh:*)",
+      "Bash(export:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

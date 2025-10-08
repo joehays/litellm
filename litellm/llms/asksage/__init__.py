@@ -6,6 +6,6 @@ CAPRA (https://api.capra.flankspeed.us.navy.mil) endpoints.
 """
 from .chat.handler import AskSageChatCompletion
 from .chat.transformation import AskSageConfig
-from .common_utils import AskSageError
+from .common_utils import AskSageError, get_asksage_token
 
-__all__ = ["AskSageChatCompletion", "AskSageConfig", "AskSageError"]
+__all__ = ["AskSageChatCompletion", "AskSageConfig", "AskSageError", "get_asksage_token"]
