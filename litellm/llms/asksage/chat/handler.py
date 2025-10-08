@@ -119,6 +119,11 @@ class AskSageChatCompletion(BaseLLM):
         """
         from litellm.utils import ProviderConfigManager
 
+        print(f"[DEBUG] AskSage handler.completion() called!")
+        print(f"[DEBUG]   api_base: {api_base}")
+        print(f"[DEBUG]   api_key: {api_key[:50] if api_key else 'NONE'}...")
+        print(f"[DEBUG]   model: {model}")
+
         headers = headers or {}
 
         # Validate environment and set up headers

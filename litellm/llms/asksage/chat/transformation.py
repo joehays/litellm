@@ -54,6 +54,54 @@ class AskSageConfig(BaseConfig):
             "stream",  # TODO: Verify if AskSage supports streaming
         ]
 
+    def map_openai_params(
+        self,
+        non_default_params: Dict,
+        optional_params: Dict,
+        model: str,
+        drop_params: bool = False,
+    ) -> Dict:
+        """
+        Map OpenAI parameters to AskSage format
+
+        Args:
+            non_default_params: Non-default parameters from request
+            optional_params: Optional parameters dict
+            model: Model name
+            drop_params: Whether to drop unsupported params
+
+        Returns:
+            Mapped parameters dict
+        """
+        # AskSage uses same parameter names as OpenAI for these
+        supported = self.get_supported_openai_params(model)
+
+        for param, value in non_default_params.items():
+            if param in supported:
+                optional_params[param] = value
+
+        return optional_params
+
+    def get_error_class(
+        self, error_message: str, status_code: int, headers: Union[dict, httpx.Headers]
+    ) -> Any:
+        """
+        Return appropriate error class for given status code
+
+        Args:
+            error_message: Error message from API
+            status_code: HTTP status code
+            headers: Response headers
+
+        Returns:
+            AskSageError instance
+        """
+        return AskSageError(
+            status_code=status_code,
+            message=error_message,
+            headers=dict(headers) if isinstance(headers, httpx.Headers) else headers,
+        )
+
     def validate_environment(
         self,
         headers: Dict,
@@ -71,17 +119,21 @@ class AskSageConfig(BaseConfig):
             model: Model name
             messages: Message list
             optional_params: Optional parameters
-            api_key: Bearer token for AskSage
+            api_key: Bearer token for AskSage/CAPRA
             api_base: Base URL for AskSage API
 
         Returns:
-            Updated headers dict with Authorization
+            Updated headers dict with x-access-tokens
         """
-        # Set Authorization header with Bearer token
+        # Set x-access-tokens header (CAPRA-specific, no "Bearer" prefix)
         if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
+            headers["x-access-tokens"] = api_key
+            print(f"[DEBUG] AskSage: Set x-access-tokens header with token: {api_key[:50]}...")
+        else:
+            print("[DEBUG] AskSage: No api_key provided!")
 
         headers["Content-Type"] = "application/json"
+        print(f"[DEBUG] AskSage: Final headers: {list(headers.keys())}")
 
         return headers
 

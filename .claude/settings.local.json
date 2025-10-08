@@ -24,7 +24,9 @@
       "Bash(export ASKSAGE_API_KEY=\"$CAPRA_API_TOKEN\")",
       "Bash(export ASKSAGE_CA_CERT_PATH=\"$HOME/dev/joe-docs/dev-ops/Certificates_PKCS7_v5_14_DoD/DoD_PKE_CA_chain.pem\")",
       "Bash(./run_functional_test.sh:*)",
-      "Bash(export:*)"
+      "Bash(export:*)",
+      "Bash(awk:*)",
+      "Bash(bash:*)"
     ],
     "deny": [],
     "ask": []

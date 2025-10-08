@@ -2009,7 +2009,7 @@ def completion(  # type: ignore # noqa: PLR0915
                 input=messages, api_key=api_key, original_response=response
             )
         elif (
-            model in litellm.open_ai_chat_completion_models
+            (model in litellm.open_ai_chat_completion_models and custom_llm_provider not in ["asksage"])  # Don't match if using custom provider
             or custom_llm_provider == "custom_openai"
             or custom_llm_provider == "deepinfra"
             or custom_llm_provider == "perplexity"
@@ -2357,10 +2357,12 @@ def completion(  # type: ignore # noqa: PLR0915
             response = response
         elif custom_llm_provider == "asksage":
             # AskSage/CAPRA provider
+            from litellm.llms.asksage.common_utils import get_asksage_token
+
             api_key = (
                 api_key
                 or litellm.api_key
-                or get_secret_str("ASKSAGE_API_KEY")
+                or get_asksage_token()  # Uses ASKSAGE_TOKEN_COMMAND or ASKSAGE_API_KEY
             )
 
             # Set API base - default to CAPRA or standard AskSage
