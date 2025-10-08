@@ -449,6 +449,7 @@ cohere_chat_models: Set = set()
 mistral_chat_models: Set = set()
 text_completion_codestral_models: Set = set()
 anthropic_models: Set = set()
+asksage_models: Set = set()
 openrouter_models: Set = set()
 datarobot_models: Set = set()
 vertex_language_models: Set = set()
@@ -579,6 +580,8 @@ def add_known_models():
             mistral_chat_models.add(key)
         elif value.get("litellm_provider") == "anthropic":
             anthropic_models.add(key)
+        elif value.get("litellm_provider") == "asksage":
+            asksage_models.add(key)
         elif value.get("litellm_provider") == "empower":
             empower_models.add(key)
         elif value.get("litellm_provider") == "openrouter":
@@ -785,6 +788,7 @@ model_list = list(
     | cohere_models
     | cohere_chat_models
     | anthropic_models
+    | asksage_models
     | set(replicate_models)
     | openrouter_models
     | datarobot_models
@@ -861,6 +865,7 @@ models_by_provider: dict = {
     "cohere": cohere_models | cohere_chat_models,
     "cohere_chat": cohere_chat_models,
     "anthropic": anthropic_models,
+    "asksage": asksage_models,
     "replicate": replicate_models,
     "huggingface": huggingface_models,
     "together_ai": together_ai_models,
