@@ -1,0 +1,47 @@
+# LiteLLM AskSage Provider Configuration
+# For Claude Code CLI integration
+
+model_list:
+  # AskSage GPT-4 (primary model for Claude Code CLI)
+  - model_name: gpt-4
+    litellm_params:
+      model: asksage/gpt-4
+      api_base: ${ASKSAGE_API_BASE}
+
+  # AskSage GPT-3.5-Turbo (faster, cheaper alternative)
+  - model_name: gpt-3.5-turbo
+    litellm_params:
+      model: asksage/gpt-3.5-turbo
+      api_base: ${ASKSAGE_API_BASE}
+
+  # AskSage Claude 3.5 Sonnet
+  - model_name: claude-3-5-sonnet
+    litellm_params:
+      model: asksage/claude-3-5-sonnet
+      api_base: ${ASKSAGE_API_BASE}
+
+  # AskSage Claude 3 Opus (most capable)
+  - model_name: claude-3-opus
+    litellm_params:
+      model: asksage/claude-3-opus
+      api_base: ${ASKSAGE_API_BASE}
+
+# Proxy settings (no database, no auth for local development)
+litellm_settings:
+  drop_params: false    # Pass all parameters to provider
+  set_verbose: true     # Enable detailed logging
+  cache: false          # Disable caching for development
+  num_retries: 3        # Retry failed requests 3 times
+  request_timeout: 600  # 10 minute timeout for long requests
+
+general_settings:
+  # No master key required for local development
+  # Uncomment and set if you want to require authentication:
+  # master_key: ${LITELLM_MASTER_KEY}
+
+  # No database required for basic proxy usage
+  # Uncomment if you want to enable database features:
+  # database_url: ${DATABASE_URL}
+
+  # Allow requests from any origin (CORS)
+  allowed_origins: ["*"]
