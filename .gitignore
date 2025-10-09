@@ -97,3 +97,4 @@ litellm_config.yaml
 .vscode/launch.json
 litellm/proxy/to_delete_loadtest_work/*
 update_model_cost_map.py
+litellm_core_utils/litellm_core_utils/
