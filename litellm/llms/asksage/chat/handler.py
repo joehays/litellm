@@ -36,9 +36,7 @@ class AskSageChatCompletion(BaseLLM):
         super().__init__()
 
     def _get_httpx_client(
-        self,
-        api_base: str,
-        timeout: Union[float, httpx.Timeout],
+        self, api_base: str, timeout: Union[float, httpx.Timeout]
     ) -> httpx.Client:
         """
         Create httpx client with optional TLS certificate for CAPRA
@@ -50,18 +48,13 @@ class AskSageChatCompletion(BaseLLM):
 
         if ca_cert_path and os.path.exists(ca_cert_path):
             # Use DoD CA certificate chain for CAPRA
-            return httpx.Client(
-                timeout=timeout,
-                verify=ca_cert_path,
-            )
+            return httpx.Client(timeout=timeout, verify=ca_cert_path)
         else:
             # Standard HTTPS (use system CA bundle)
             return _get_httpx_client(params={"timeout": timeout})
 
     def _get_async_httpx_client(
-        self,
-        api_base: str,
-        timeout: Union[float, httpx.Timeout],
+        self, api_base: str, timeout: Union[float, httpx.Timeout]
     ) -> httpx.AsyncClient:
         """
         Create async httpx client with optional TLS certificate for CAPRA
@@ -70,15 +63,11 @@ class AskSageChatCompletion(BaseLLM):
 
         if ca_cert_path and os.path.exists(ca_cert_path):
             # Use DoD CA certificate chain for CAPRA
-            return httpx.AsyncClient(
-                timeout=timeout,
-                verify=ca_cert_path,
-            )
+            return httpx.AsyncClient(timeout=timeout, verify=ca_cert_path)
         else:
             # Standard HTTPS (use system CA bundle)
             return get_async_httpx_client(
-                llm_provider=litellm.LlmProviders.ASKSAGE,
-                params={"timeout": timeout},
+                llm_provider=litellm.LlmProviders.ASKSAGE, params={"timeout": timeout}
             )
 
     def completion(
@@ -181,10 +170,7 @@ class AskSageChatCompletion(BaseLLM):
 
         try:
             response = client.post(
-                api_base,
-                headers=headers,
-                json=data,
-                timeout=timeout,
+                api_base, headers=headers, json=data, timeout=timeout
             )
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
@@ -240,10 +226,7 @@ class AskSageChatCompletion(BaseLLM):
 
         try:
             response = await client.post(
-                api_base,
-                headers=headers,
-                json=data,
-                timeout=timeout,
+                api_base, headers=headers, json=data, timeout=timeout
             )
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
@@ -254,7 +237,9 @@ class AskSageChatCompletion(BaseLLM):
 
             raise AskSageError(
                 status_code=e.response.status_code,
-                message=await e.response.aread() if hasattr(e.response, "aread") else e.response.text,
+                message=await e.response.aread()
+                if hasattr(e.response, "aread")
+                else e.response.text,
                 headers=error_headers,
             )
         except Exception as e:

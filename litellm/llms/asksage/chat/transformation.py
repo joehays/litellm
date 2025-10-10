@@ -31,9 +31,7 @@ class AskSageConfig(BaseConfig):
     max_tokens: Optional[int] = None
 
     def __init__(
-        self,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        self, temperature: Optional[float] = None, max_tokens: Optional[int] = None
     ) -> None:
         locals_ = locals().copy()
         for key, value in locals_.items():
@@ -128,7 +126,9 @@ class AskSageConfig(BaseConfig):
         # Set x-access-tokens header (CAPRA-specific, no "Bearer" prefix)
         if api_key:
             headers["x-access-tokens"] = api_key
-            print(f"[DEBUG] AskSage: Set x-access-tokens header with token: {api_key[:50]}...")
+            print(
+                f"[DEBUG] AskSage: Set x-access-tokens header with token: {api_key[:50]}..."
+            )
         else:
             print("[DEBUG] AskSage: No api_key provided!")
 
@@ -182,7 +182,9 @@ class AskSageConfig(BaseConfig):
         # Build AskSage request payload
         data: Dict[str, Any] = {
             "message": user_message,
-            "dataset": optional_params.get("dataset", ["none"]),  # AskSage requires dataset array
+            "dataset": optional_params.get(
+                "dataset", ["none"]
+            ),  # AskSage requires dataset array
         }
 
         # Add model if specified (optional in AskSage)
@@ -269,10 +271,7 @@ class AskSageConfig(BaseConfig):
         )
 
         # Build message
-        message = Message(
-            content=response_text,
-            role="assistant",
-        )
+        message = Message(content=response_text, role="assistant")
 
         # Store citations in metadata if present
         citations = response_json.get("citations")
@@ -284,7 +283,9 @@ class AskSageConfig(BaseConfig):
 
         # Build choice
         choice = Choices(
-            finish_reason=map_finish_reason("stop"),  # AskSage doesn't provide finish_reason
+            finish_reason=map_finish_reason(
+                "stop"
+            ),  # AskSage doesn't provide finish_reason
             index=0,
             message=message,
         )
