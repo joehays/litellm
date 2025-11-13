@@ -257,7 +257,9 @@ class AskSageConfig(BaseConfig):
             )
 
         # Extract response text
-        response_text = response_json.get("response", "")
+        # NOTE: CAPRA returns LLM response in "message" field, not "response"
+        # "response" field contains status indicator ("OK")
+        response_text = response_json.get("message", "")
 
         # Extract model used
         model_used = response_json.get("model_used", model)

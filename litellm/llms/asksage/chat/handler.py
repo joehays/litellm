@@ -43,10 +43,14 @@ class AskSageChatCompletion(BaseLLM):
 
         Checks for ASKSAGE_CA_CERT_PATH environment variable.
         If present, uses it for TLS verification (required for CAPRA/DoD endpoints).
+        If set to empty string, disables verification (INSECURE - for development only).
         """
         ca_cert_path = os.environ.get("ASKSAGE_CA_CERT_PATH")
 
-        if ca_cert_path and os.path.exists(ca_cert_path):
+        if ca_cert_path == "":
+            # Empty string = explicitly disable verification (INSECURE)
+            return httpx.Client(timeout=timeout, verify=False)
+        elif ca_cert_path and os.path.exists(ca_cert_path):
             # Use DoD CA certificate chain for CAPRA
             return httpx.Client(timeout=timeout, verify=ca_cert_path)
         else:
@@ -58,10 +62,14 @@ class AskSageChatCompletion(BaseLLM):
     ) -> httpx.AsyncClient:
         """
         Create async httpx client with optional TLS certificate for CAPRA
+        If ASKSAGE_CA_CERT_PATH is empty string, disables verification (INSECURE).
         """
         ca_cert_path = os.environ.get("ASKSAGE_CA_CERT_PATH")
 
-        if ca_cert_path and os.path.exists(ca_cert_path):
+        if ca_cert_path == "":
+            # Empty string = explicitly disable verification (INSECURE)
+            return httpx.AsyncClient(timeout=timeout, verify=False)
+        elif ca_cert_path and os.path.exists(ca_cert_path):
             # Use DoD CA certificate chain for CAPRA
             return httpx.AsyncClient(timeout=timeout, verify=ca_cert_path)
         else:
