@@ -1,8 +1,9 @@
 # Base image for building
-ARG LITELLM_BUILD_IMAGE=cgr.dev/chainguard/python:latest-dev
+# Use standard Python image - Chainguard latest-dev has Python 3.14 which breaks ddtrace
+ARG LITELLM_BUILD_IMAGE=python:3.12-slim
 
 # Runtime image
-ARG LITELLM_RUNTIME_IMAGE=cgr.dev/chainguard/python:latest-dev
+ARG LITELLM_RUNTIME_IMAGE=python:3.12-slim
 # Builder stage
 FROM $LITELLM_BUILD_IMAGE AS builder
 
@@ -12,8 +13,16 @@ WORKDIR /app
 USER root
 
 # Install build dependencies
-RUN apk add --no-cache gcc python3-dev openssl openssl-dev
+# Install rustup for ddtrace which requires Rust toolchain
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libssl-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
+# Add Rust to PATH for all subsequent commands
+ENV PATH="/root/.cargo/bin:${PATH}"
 
 RUN pip install --upgrade pip>=24.3.1 && \
     pip install build
@@ -48,7 +57,12 @@ FROM $LITELLM_RUNTIME_IMAGE AS runtime
 USER root
 
 # Install runtime dependencies
-RUN apk add --no-cache openssl tzdata
+# libatomic1 required for Prisma's embedded Node.js
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openssl \
+    tzdata \
+    libatomic1 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Upgrade pip to fix CVE-2025-8869
 RUN pip install --upgrade pip>=24.3.1
@@ -75,7 +89,7 @@ RUN chmod +x docker/prod_entrypoint.sh
 
 EXPOSE 4000/tcp
 
-RUN apk add --no-cache supervisor
+RUN apt-get update && apt-get install -y --no-install-recommends supervisor && rm -rf /var/lib/apt/lists/*
 COPY docker/supervisord.conf /etc/supervisord.conf
 
 ENTRYPOINT ["docker/prod_entrypoint.sh"]
