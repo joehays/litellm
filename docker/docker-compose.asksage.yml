@@ -1,0 +1,55 @@
+version: '3.8'
+
+# LiteLLM Proxy with AskSage Provider
+# Simple deployment for Claude Code CLI integration
+
+services:
+  litellm-proxy:
+    image: litellm-asksage:latest
+    container_name: litellm-asksage-proxy
+    ports:
+      - "18100:4000"  # Exposed on port 18100 to avoid conflicts
+
+    environment:
+      # LiteLLM Configuration
+      - CONFIG_FILE=/app/config.yaml
+      - PORT=4000
+      - HOST=0.0.0.0
+      - LITELLM_LOG=INFO
+      - PYTHONUNBUFFERED=1
+
+      # AskSage Configuration
+      # Default endpoint (override in .env file if needed)
+      - ASKSAGE_API_BASE=https://api.asksage.ai/server/
+
+      # Token authentication - use one of these methods:
+      # Option 1: Static token (set ASKSAGE_API_KEY in .env)
+      # Option 2: Dynamic token script (set ASKSAGE_TOKEN_COMMAND below)
+      - ASKSAGE_TOKEN_COMMAND=/app/tokens/get_token.sh
+
+      # Optional: Custom CA certificates path
+      # - ASKSAGE_CA_CERT_PATH=/app/certs/ca_chain.pem
+
+    volumes:
+      # Configuration file
+      - ./config.yaml:/app/config.yaml:ro
+
+      # Token script (adjust path to your actual script)
+      # Create this script: ~/credentials/get_asksage_token.sh
+      - ${HOME}/credentials/get_asksage_token.sh:/app/tokens/get_token.sh:ro
+
+      # Optional: Mount CA certificates if using custom endpoint
+      # - ${HOME}/credentials/certs/ca_chain.pem:/app/certs/ca_chain.pem:ro
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+# Note: This configuration runs without a database for simplicity.
+# If you need database features (user management, request logging, etc.),
+# use docker-compose.asksage.full.yml instead.

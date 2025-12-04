@@ -2469,6 +2469,7 @@ class LlmProviders(str, Enum):
     WANDB = "wandb"
     OVHCLOUD = "ovhcloud"
     LEMONADE = "lemonade"
+    ASKSAGE = "asksage"
 
 
 # Create a set of all provider values for quick lookup

@@ -141,6 +141,7 @@ from .litellm_core_utils.prompt_templates.factory import (
 )
 from .litellm_core_utils.streaming_chunk_builder_utils import ChunkProcessor
 from .llms.anthropic.chat import AnthropicChatCompletion
+from .llms.asksage.chat import AskSageChatCompletion
 from .llms.azure.audio_transcriptions import AzureAudioTranscription
 from .llms.azure.azure import AzureChatCompletion, _check_dynamic_azure_params
 from .llms.azure.chat.o_series_handler import AzureOpenAIO1ChatCompletion
@@ -239,6 +240,7 @@ openai_image_variations = OpenAIImageVariationsHandler()
 groq_chat_completions = GroqChatCompletion()
 azure_ai_embedding = AzureAIEmbedding()
 anthropic_chat_completions = AnthropicChatCompletion()
+asksage_chat_completions = AskSageChatCompletion()
 azure_chat_completions = AzureChatCompletion()
 azure_o1_chat_completions = AzureOpenAIO1ChatCompletion()
 azure_text_completions = AzureTextCompletion()
@@ -2007,7 +2009,7 @@ def completion(  # type: ignore # noqa: PLR0915
                 input=messages, api_key=api_key, original_response=response
             )
         elif (
-            model in litellm.open_ai_chat_completion_models
+            (model in litellm.open_ai_chat_completion_models and custom_llm_provider not in ["asksage"])  # Don't match if using custom provider
             or custom_llm_provider == "custom_openai"
             or custom_llm_provider == "deepinfra"
             or custom_llm_provider == "perplexity"
@@ -2345,6 +2347,56 @@ def completion(  # type: ignore # noqa: PLR0915
                 client=client,
                 custom_llm_provider=custom_llm_provider,
             )
+            if optional_params.get("stream", False) or acompletion is True:
+                ## LOGGING
+                logging.post_call(
+                    input=messages,
+                    api_key=api_key,
+                    original_response=response,
+                )
+            response = response
+        elif custom_llm_provider == "asksage":
+            # AskSage/CAPRA provider
+            from litellm.llms.asksage.common_utils import get_asksage_token
+
+            api_key = (
+                api_key
+                or litellm.api_key
+                or get_asksage_token()  # Uses ASKSAGE_TOKEN_COMMAND or ASKSAGE_API_KEY
+            )
+
+            # Set API base - default to CAPRA or standard AskSage
+            api_base = (
+                api_base
+                or litellm.api_base
+                or get_secret_str("ASKSAGE_API_BASE")
+                or "https://api.capra.flankspeed.us.navy.mil/server/query"
+            )
+
+            # Ensure /server/query endpoint
+            if api_base and not api_base.endswith("/server/query"):
+                api_base += "/server/query"
+
+            response = asksage_chat_completions.completion(
+                model=model,
+                messages=messages,
+                api_base=api_base,
+                acompletion=acompletion,
+                custom_prompt_dict=litellm.custom_prompt_dict,
+                model_response=model_response,
+                print_verbose=print_verbose,
+                optional_params=optional_params,
+                litellm_params=litellm_params,
+                logger_fn=logger_fn,
+                encoding=encoding,
+                api_key=api_key,
+                logging_obj=logging,
+                headers=headers,
+                timeout=timeout,
+                client=client,
+                custom_llm_provider=custom_llm_provider,
+            )
+
             if optional_params.get("stream", False) or acompletion is True:
                 ## LOGGING
                 logging.post_call(
