@@ -326,6 +326,21 @@ class TestAskSageTransformRequest:
 
         assert result["system_prompt"] == "Custom system prompt"
 
+    def test_transform_request_includes_usage_true(self):
+        """Test that usage=True is always added to request for Prometheus metrics"""
+        config = AskSageConfig()
+        messages = [{"role": "user", "content": "Hello"}]
+
+        result = config.transform_request(
+            model="google-claude-4-opus",
+            messages=cast(list[AllMessageValues], messages),
+            optional_params={},
+            litellm_params={},
+            headers={},
+        )
+
+        assert result["usage"] is True
+
 
 class TestAskSageTransformResponse:
     """Test suite for AskSage response transformation"""
@@ -474,6 +489,96 @@ class TestAskSageTransformResponse:
 
         assert exc_info.value.status_code == 200
         assert "Failed to parse" in exc_info.value.message
+
+    def test_transform_response_with_usage_format(self):
+        """Test response transformation with new usage=True format from AskSage"""
+        config = AskSageConfig()
+
+        # Mock response with usage format (CAPRA/AskSage with usage=True)
+        mock_response = Mock()
+        mock_response.json.return_value = {
+            "message": "\n\nOK",
+            "response": "OK",
+            "model_used": "google-claude-45-sonnet",
+            "usage": {
+                "asksage_tokens": 132,
+                "model_tokens": {
+                    "prompt_tokens": 585,
+                    "completion_tokens": 4,
+                    "total_tokens": 589
+                }
+            },
+            "status": 200
+        }
+        mock_response.status_code = 200
+
+        # Mock logging object
+        mock_logging_obj = Mock()
+        mock_logging_obj.model_call_details = {}
+
+        model_response = ModelResponse()
+
+        result = config.transform_response(
+            model="google-claude-45-sonnet",
+            raw_response=mock_response,
+            model_response=model_response,
+            logging_obj=mock_logging_obj,
+            request_data={},
+            messages=[{"role": "user", "content": "Say OK"}],
+            optional_params={},
+            litellm_params={},
+            encoding=None,
+        )
+
+        # Verify usage data extracted from new format
+        assert result.usage.prompt_tokens == 585
+        assert result.usage.completion_tokens == 4
+        assert result.usage.total_tokens == 589
+
+        # Verify asksage_tokens stored in metadata for Prometheus
+        assert hasattr(result, "_hidden_params")
+        assert "asksage_tokens" in result._hidden_params
+        assert result._hidden_params["asksage_tokens"] == 132
+
+    def test_transform_response_legacy_tokens_used_format(self):
+        """Test response transformation with legacy tokens_used format"""
+        config = AskSageConfig()
+
+        # Mock response with legacy format
+        mock_response = Mock()
+        mock_response.json.return_value = {
+            "response": "The answer is 42.",
+            "model_used": "google-claude-4-opus",
+            "tokens_used": {
+                "prompt": 15,
+                "completion": 10,
+                "total": 25
+            }
+        }
+        mock_response.status_code = 200
+
+        # Mock logging object
+        mock_logging_obj = Mock()
+        mock_logging_obj.model_call_details = {}
+
+        model_response = ModelResponse()
+
+        result = config.transform_response(
+            model="google-claude-4-opus",
+            raw_response=mock_response,
+            model_response=model_response,
+            logging_obj=mock_logging_obj,
+            request_data={},
+            messages=[{"role": "user", "content": "What is the meaning of life?"}],
+            optional_params={},
+            litellm_params={},
+            encoding=None,
+        )
+
+        # Verify usage data extracted from legacy format
+        assert result.usage.prompt_tokens == 15
+        assert result.usage.completion_tokens == 10
+        assert result.usage.total_tokens == 25
 
 
 class TestAskSageErrorHandling:

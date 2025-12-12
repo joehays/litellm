@@ -215,6 +215,10 @@ class AskSageConfig(BaseConfig):
         if "limit_references" in optional_params:
             data["limit_references"] = optional_params["limit_references"]
 
+        # Always request usage statistics for Prometheus metrics
+        # AskSage returns token counts when usage=True
+        data["usage"] = True
+
         return data
 
     def transform_response(
@@ -234,7 +238,24 @@ class AskSageConfig(BaseConfig):
         """
         Transform AskSage response to LiteLLM ModelResponse format
 
-        AskSage format:
+        AskSage format (with usage=True):
+        {
+            "message": "AI-generated response...",
+            "response": "OK",
+            "model_used": "google-claude-45-sonnet",
+            "usage": {
+                "asksage_tokens": 132,
+                "model_tokens": {
+                    "prompt_tokens": 585,
+                    "completion_tokens": 4,
+                    "total_tokens": 589
+                }
+            },
+            "references": "",
+            "status": 200
+        }
+
+        Legacy format:
         {
             "response": "AI-generated response...",
             "model_used": "google-claude-4-opus",
@@ -257,31 +278,58 @@ class AskSageConfig(BaseConfig):
             )
 
         # Extract response text
-        # NOTE: CAPRA returns LLM response in "message" field, not "response"
-        # "response" field contains status indicator ("OK")
-        response_text = response_json.get("message", "")
+        # CAPRA (with usage=True) returns LLM response in "message" field
+        # Legacy format uses "response" field
+        # "response" in CAPRA contains status indicator ("OK"), so check message first
+        response_text = response_json.get("message", "") or response_json.get("response", "")
 
         # Extract model used
         model_used = response_json.get("model_used", model)
 
         # Extract token usage
+        # AskSage returns usage in two possible formats:
+        # 1. Legacy: {"tokens_used": {"prompt": 15, "completion": 150, "total": 165}}
+        # 2. Current (with usage=True): {"usage": {"model_tokens": {"prompt_tokens": 585, "completion_tokens": 4, "total_tokens": 589}, "asksage_tokens": 132}}
         tokens_used = response_json.get("tokens_used", {})
-        usage = Usage(
-            prompt_tokens=tokens_used.get("prompt", 0),
-            completion_tokens=tokens_used.get("completion", 0),
-            total_tokens=tokens_used.get("total", 0),
-        )
+        usage_data = response_json.get("usage", {})
+
+        if usage_data and "model_tokens" in usage_data:
+            # Current format (usage=True)
+            model_tokens = usage_data["model_tokens"]
+            usage = Usage(
+                prompt_tokens=model_tokens.get("prompt_tokens", 0),
+                completion_tokens=model_tokens.get("completion_tokens", 0),
+                total_tokens=model_tokens.get("total_tokens", 0),
+            )
+        elif tokens_used:
+            # Legacy format
+            usage = Usage(
+                prompt_tokens=tokens_used.get("prompt", 0),
+                completion_tokens=tokens_used.get("completion", 0),
+                total_tokens=tokens_used.get("total", 0),
+            )
+        else:
+            # No usage data available
+            usage = Usage(
+                prompt_tokens=0,
+                completion_tokens=0,
+                total_tokens=0,
+            )
 
         # Build message
         message = Message(content=response_text, role="assistant")
 
-        # Store citations in metadata if present
+        # Store citations and AskSage-specific usage data in metadata
+        if not hasattr(model_response, "_hidden_params"):
+            model_response._hidden_params = {}
+
         citations = response_json.get("citations")
         if citations:
-            # Store in model_response metadata or as custom field
-            if not hasattr(model_response, "_hidden_params"):
-                model_response._hidden_params = {}
             model_response._hidden_params["citations"] = citations
+
+        # Store asksage_tokens for Prometheus metrics/billing tracking
+        if usage_data and "asksage_tokens" in usage_data:
+            model_response._hidden_params["asksage_tokens"] = usage_data["asksage_tokens"]
 
         # Build choice
         choice = Choices(
