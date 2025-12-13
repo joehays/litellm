@@ -581,6 +581,235 @@ class TestAskSageTransformResponse:
         assert result.usage.total_tokens == 25
 
 
+class TestAskSageExtendedThinking:
+    """Test suite for Extended Thinking (reasoning_effort) support - ADR-0039"""
+
+    def test_get_supported_openai_params_includes_reasoning_effort(self):
+        """Test that reasoning_effort is in supported parameters"""
+        config = AskSageConfig()
+        supported = config.get_supported_openai_params("google-claude-4-opus")
+
+        assert "reasoning_effort" in supported
+
+    def test_transform_request_with_reasoning_effort_low(self):
+        """Test transformation with reasoning_effort='low'"""
+        config = AskSageConfig()
+        messages = [{"role": "user", "content": "Quick question"}]
+
+        result = config.transform_request(
+            model="google-claude-4-opus",
+            messages=cast(list[AllMessageValues], messages),
+            optional_params={"reasoning_effort": "low"},
+            litellm_params={},
+            headers={},
+        )
+
+        assert result["reasoning_effort"] == "low"
+
+    def test_transform_request_with_reasoning_effort_medium(self):
+        """Test transformation with reasoning_effort='medium'"""
+        config = AskSageConfig()
+        messages = [{"role": "user", "content": "Analyze this code"}]
+
+        result = config.transform_request(
+            model="google-claude-4-opus",
+            messages=cast(list[AllMessageValues], messages),
+            optional_params={"reasoning_effort": "medium"},
+            litellm_params={},
+            headers={},
+        )
+
+        assert result["reasoning_effort"] == "medium"
+
+    def test_transform_request_with_reasoning_effort_high(self):
+        """Test transformation with reasoning_effort='high'"""
+        config = AskSageConfig()
+        messages = [{"role": "user", "content": "Design a complex system"}]
+
+        result = config.transform_request(
+            model="google-claude-4-opus",
+            messages=cast(list[AllMessageValues], messages),
+            optional_params={"reasoning_effort": "high"},
+            litellm_params={},
+            headers={},
+        )
+
+        assert result["reasoning_effort"] == "high"
+
+    def test_transform_request_without_reasoning_effort(self):
+        """Test that reasoning_effort is not added when not specified"""
+        config = AskSageConfig()
+        messages = [{"role": "user", "content": "Hello"}]
+
+        result = config.transform_request(
+            model="google-claude-4-opus",
+            messages=cast(list[AllMessageValues], messages),
+            optional_params={},
+            litellm_params={},
+            headers={},
+        )
+
+        assert "reasoning_effort" not in result
+
+    def test_map_openai_params_reasoning_effort(self):
+        """Test that reasoning_effort is properly mapped through map_openai_params"""
+        config = AskSageConfig()
+        optional_params = {}
+
+        result = config.map_openai_params(
+            non_default_params={"reasoning_effort": "high"},
+            optional_params=optional_params,
+            model="google-claude-4-opus",
+            drop_params=False,
+        )
+
+        assert result.get("reasoning_effort") == "high"
+
+    def test_transform_request_combined_with_other_params(self):
+        """Test reasoning_effort combined with other parameters"""
+        config = AskSageConfig()
+        messages = [
+            {"role": "system", "content": "You are an architect."},
+            {"role": "user", "content": "Design a microservices system"},
+        ]
+
+        result = config.transform_request(
+            model="google-claude-4-opus",
+            messages=cast(list[AllMessageValues], messages),
+            optional_params={
+                "reasoning_effort": "high",
+                "temperature": 0.7,
+                "max_tokens": 4000,
+            },
+            litellm_params={},
+            headers={},
+        )
+
+        assert result["reasoning_effort"] == "high"
+        assert result["temperature"] == 0.7
+        assert result["max_tokens"] == 4000
+        assert result["system_prompt"] == "You are an architect."
+
+
+class TestAskSageAdditionalParams:
+    """Test suite for additional AskSage-specific parameters (live, tools, tool_choice)"""
+
+    def test_get_supported_openai_params_includes_live(self):
+        """Test that live (web search mode) is in supported parameters"""
+        config = AskSageConfig()
+        supported = config.get_supported_openai_params("google-claude-4-opus")
+
+        assert "live" in supported
+
+    def test_get_supported_openai_params_includes_tools(self):
+        """Test that tools is in supported parameters"""
+        config = AskSageConfig()
+        supported = config.get_supported_openai_params("google-claude-4-opus")
+
+        assert "tools" in supported
+
+    def test_get_supported_openai_params_includes_tool_choice(self):
+        """Test that tool_choice is in supported parameters"""
+        config = AskSageConfig()
+        supported = config.get_supported_openai_params("google-claude-4-opus")
+
+        assert "tool_choice" in supported
+
+    def test_transform_request_with_live_true(self):
+        """Test transformation with live=True (web search mode)"""
+        config = AskSageConfig()
+        messages = [{"role": "user", "content": "What's in the news today?"}]
+
+        result = config.transform_request(
+            model="google-claude-4-opus",
+            messages=cast(list[AllMessageValues], messages),
+            optional_params={"live": True},
+            litellm_params={},
+            headers={},
+        )
+
+        assert result["live"] is True
+
+    def test_transform_request_with_live_false(self):
+        """Test transformation with live=False"""
+        config = AskSageConfig()
+        messages = [{"role": "user", "content": "What is 2+2?"}]
+
+        result = config.transform_request(
+            model="google-claude-4-opus",
+            messages=cast(list[AllMessageValues], messages),
+            optional_params={"live": False},
+            litellm_params={},
+            headers={},
+        )
+
+        assert result["live"] is False
+
+    def test_transform_request_with_tools(self):
+        """Test transformation with tools parameter"""
+        config = AskSageConfig()
+        messages = [{"role": "user", "content": "Get the current weather"}]
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_weather",
+                    "description": "Get current weather",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ]
+
+        result = config.transform_request(
+            model="google-claude-4-opus",
+            messages=cast(list[AllMessageValues], messages),
+            optional_params={"tools": tools},
+            litellm_params={},
+            headers={},
+        )
+
+        assert result["tools"] == tools
+
+    def test_transform_request_with_tool_choice(self):
+        """Test transformation with tool_choice parameter"""
+        config = AskSageConfig()
+        messages = [{"role": "user", "content": "Use the calculator"}]
+
+        result = config.transform_request(
+            model="google-claude-4-opus",
+            messages=cast(list[AllMessageValues], messages),
+            optional_params={"tool_choice": "auto"},
+            litellm_params={},
+            headers={},
+        )
+
+        assert result["tool_choice"] == "auto"
+
+    def test_transform_request_all_new_params_combined(self):
+        """Test transformation with all new parameters combined"""
+        config = AskSageConfig()
+        messages = [{"role": "user", "content": "Complex task with tools"}]
+        tools = [{"type": "function", "function": {"name": "test_tool"}}]
+
+        result = config.transform_request(
+            model="google-claude-4-opus",
+            messages=cast(list[AllMessageValues], messages),
+            optional_params={
+                "reasoning_effort": "high",
+                "live": True,
+                "tools": tools,
+                "tool_choice": "required",
+            },
+            litellm_params={},
+            headers={},
+        )
+
+        assert result["reasoning_effort"] == "high"
+        assert result["live"] is True
+        assert result["tools"] == tools
+        assert result["tool_choice"] == "required"
+
+
 class TestAskSageErrorHandling:
     """Test suite for AskSage error handling"""
 

@@ -45,11 +45,19 @@ class AskSageConfig(BaseConfig):
     def get_supported_openai_params(self, model: str) -> List[str]:
         """
         Return list of OpenAI parameters supported by AskSage
+
+        Note: reasoning_effort is an AskSage-specific parameter for Extended Thinking
+        (ADR-0039). Values: "low", "medium", "high". Enables dedicated reasoning
+        phase before response generation.
         """
         return [
             "temperature",
             "max_tokens",
             "stream",  # TODO: Verify if AskSage supports streaming
+            "reasoning_effort",  # AskSage Extended Thinking (ADR-0039)
+            "tools",  # Function calling tools
+            "tool_choice",  # Tool selection mode
+            "live",  # Web search mode
         ]
 
     def map_openai_params(
@@ -214,6 +222,23 @@ class AskSageConfig(BaseConfig):
         # Add limit_references if specified
         if "limit_references" in optional_params:
             data["limit_references"] = optional_params["limit_references"]
+
+        # Add reasoning_effort for Extended Thinking (ADR-0039)
+        # Values: "low", "medium", "high" - enables dedicated reasoning phase
+        if "reasoning_effort" in optional_params:
+            data["reasoning_effort"] = optional_params["reasoning_effort"]
+
+        # Add live (web search) mode if specified
+        if "live" in optional_params:
+            data["live"] = optional_params["live"]
+
+        # Add tools for function calling if specified
+        if "tools" in optional_params:
+            data["tools"] = optional_params["tools"]
+
+        # Add tool_choice if specified
+        if "tool_choice" in optional_params:
+            data["tool_choice"] = optional_params["tool_choice"]
 
         # Always request usage statistics for Prometheus metrics
         # AskSage returns token counts when usage=True
