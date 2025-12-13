@@ -49,11 +49,16 @@ class AskSageConfig(BaseConfig):
         Note: reasoning_effort is an AskSage-specific parameter for Extended Thinking
         (ADR-0039). Values: "low", "medium", "high". Enables dedicated reasoning
         phase before response generation.
+
+        Note: Streaming is NOT supported by AskSage API or asksageclient v1.42.
+        If stream=True is passed, it will be ignored and a non-streaming response
+        will be returned. The "stream" param is included for LiteLLM compatibility
+        but has no effect on actual API behavior.
         """
         return [
             "temperature",
             "max_tokens",
-            "stream",  # TODO: Verify if AskSage supports streaming
+            "stream",  # Ignored - AskSage/asksageclient v1.42 does not support streaming
             "reasoning_effort",  # AskSage Extended Thinking (ADR-0039)
             "tools",  # Function calling tools
             "tool_choice",  # Tool selection mode
