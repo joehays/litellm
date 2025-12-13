@@ -10,11 +10,18 @@ This provides automatic support for:
 - live mode (web search)
 - All future AskSage API features
 
+E37 Phase 4: Adds MARS extensions:
+- Prometheus metrics (request count, latency, tokens)
+- Structured logging with secret redaction
+- Deprecation warnings for legacy httpx path
+
 Reference: https://docs.asksage.ai/docs/api-documentation/ask-sage-python-client.html
 """
 import asyncio
-import json
+import logging
 import os
+import time
+import warnings
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Optional, Union
 
@@ -34,6 +41,36 @@ from ...base import BaseLLM
 from ..common_utils import AskSageError
 from .transformation import AskSageConfig
 
+# Set up structured logging
+logger = logging.getLogger("litellm.asksage")
+
+# Import Prometheus metrics (optional - graceful fallback if not available)
+try:
+    from prometheus_client import Counter, Histogram
+
+    ASKSAGE_REQUESTS_TOTAL = Counter(
+        "asksage_requests_total",
+        "Total number of AskSage API requests",
+        ["model", "status", "method"],
+    )
+    ASKSAGE_REQUEST_DURATION_SECONDS = Histogram(
+        "asksage_request_duration_seconds",
+        "AskSage API request latency in seconds",
+        ["model", "method"],
+        buckets=(0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0),
+    )
+    ASKSAGE_TOKENS_TOTAL = Counter(
+        "asksage_tokens_total",
+        "Total tokens used in AskSage API calls",
+        ["model", "type"],
+    )
+    PROMETHEUS_AVAILABLE = True
+except ImportError:
+    PROMETHEUS_AVAILABLE = False
+    ASKSAGE_REQUESTS_TOTAL = None
+    ASKSAGE_REQUEST_DURATION_SECONDS = None
+    ASKSAGE_TOKENS_TOTAL = None
+
 # Import official AskSage client
 try:
     from asksageclient import AskSageClient
@@ -42,6 +79,36 @@ try:
 except ImportError:
     ASKSAGECLIENT_AVAILABLE = False
     AskSageClient = None  # type: ignore
+
+
+def _redact_api_key(api_key: Optional[str], visible_chars: int = 8) -> str:
+    """Redact API key for safe logging, showing only first N characters."""
+    if not api_key:
+        return "NONE"
+    if len(api_key) <= visible_chars:
+        return "*" * len(api_key)
+    return f"{api_key[:visible_chars]}...{'*' * (len(api_key) - visible_chars)}"
+
+
+def _record_request_metrics(
+    model: str, status: str, method: str, duration: float, tokens: Optional[dict] = None
+) -> None:
+    """Record Prometheus metrics for an AskSage request."""
+    if not PROMETHEUS_AVAILABLE:
+        return
+
+    # Record request count
+    ASKSAGE_REQUESTS_TOTAL.labels(model=model, status=status, method=method).inc()
+
+    # Record latency
+    ASKSAGE_REQUEST_DURATION_SECONDS.labels(model=model, method=method).observe(duration)
+
+    # Record tokens if available
+    if tokens:
+        if "prompt_tokens" in tokens:
+            ASKSAGE_TOKENS_TOTAL.labels(model=model, type="prompt").inc(tokens["prompt_tokens"])
+        if "completion_tokens" in tokens:
+            ASKSAGE_TOKENS_TOTAL.labels(model=model, type="completion").inc(tokens["completion_tokens"])
 
 
 class AskSageChatCompletion(BaseLLM):
@@ -194,12 +261,74 @@ class AskSageChatCompletion(BaseLLM):
         # Remove None values to use client defaults
         query_params = {k: v for k, v in query_params.items() if v is not None}
 
-        # Execute query
-        print(f"[DEBUG] AskSageClient.query() with params: {list(query_params.keys())}")
-        if "reasoning_effort" in query_params:
-            print(f"[DEBUG]   reasoning_effort: {query_params['reasoning_effort']}")
+        # Log request (structured logging with secret redaction)
+        model = query_params.get("model", "unknown")
+        logger.debug(
+            "AskSageClient.query() request",
+            extra={
+                "params": list(query_params.keys()),
+                "model": model,
+                "reasoning_effort": query_params.get("reasoning_effort"),
+                "has_tools": "tools" in query_params,
+                "api_base": api_base,
+            },
+        )
 
-        return client.query(**query_params)
+        # Execute query with timing
+        start_time = time.time()
+        try:
+            response = client.query(**query_params)
+            duration = time.time() - start_time
+
+            # Extract token usage for metrics
+            tokens = {}
+            if isinstance(response, dict):
+                tokens = {
+                    "prompt_tokens": response.get("prompt_tokens", 0),
+                    "completion_tokens": response.get("completion_tokens", 0),
+                }
+
+            # Record metrics
+            _record_request_metrics(
+                model=model,
+                status="success",
+                method="asksageclient",
+                duration=duration,
+                tokens=tokens,
+            )
+
+            # Log response (without sensitive content)
+            logger.debug(
+                "AskSageClient.query() response",
+                extra={
+                    "model": model,
+                    "duration_seconds": round(duration, 3),
+                    "prompt_tokens": tokens.get("prompt_tokens"),
+                    "completion_tokens": tokens.get("completion_tokens"),
+                    "status": response.get("status") if isinstance(response, dict) else None,
+                },
+            )
+
+            return response
+
+        except Exception as e:
+            duration = time.time() - start_time
+            _record_request_metrics(
+                model=model,
+                status="error",
+                method="asksageclient",
+                duration=duration,
+            )
+            logger.error(
+                "AskSageClient.query() failed",
+                extra={
+                    "model": model,
+                    "duration_seconds": round(duration, 3),
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                },
+            )
+            raise
 
     def _dict_to_mock_response(self, response_dict: dict) -> httpx.Response:
         """
@@ -271,10 +400,17 @@ class AskSageChatCompletion(BaseLLM):
         """
         from litellm.utils import ProviderConfigManager
 
-        print(f"[DEBUG] AskSage handler.completion() called!")
-        print(f"[DEBUG]   api_base: {api_base}")
-        print(f"[DEBUG]   api_key: {api_key[:50] if api_key else 'NONE'}...")
-        print(f"[DEBUG]   model: {model}")
+        # Structured logging with secret redaction (E37 Phase 4)
+        logger.debug(
+            "AskSage completion request",
+            extra={
+                "model": model,
+                "api_base": api_base,
+                "api_key": _redact_api_key(api_key),
+                "message_count": len(messages),
+                "acompletion": acompletion,
+            },
+        )
 
         headers = headers or {}
 
@@ -330,7 +466,7 @@ class AskSageChatCompletion(BaseLLM):
         # Synchronous completion - try AskSageClient first, fall back to httpx
         if ASKSAGECLIENT_AVAILABLE:
             # Use official AskSageClient (E37 Phase 3)
-            print("[DEBUG] Using AskSageClient for completion")
+            logger.debug("Using AskSageClient for completion", extra={"model": model})
             try:
                 response_dict = self._query_via_asksageclient(api_base, api_key, data)
                 response = self._dict_to_mock_response(response_dict)
@@ -343,17 +479,37 @@ class AskSageChatCompletion(BaseLLM):
                     status_code = e.response.status_code
                 raise AskSageError(status_code=status_code, message=error_msg)
         else:
-            # Fall back to direct httpx (legacy path)
-            print("[DEBUG] AskSageClient not available, using httpx fallback")
+            # Fall back to direct httpx (legacy path - DEPRECATED)
+            # E37 Phase 6: This path is deprecated and will be removed in a future version
+            warnings.warn(
+                "Direct httpx fallback for AskSage is deprecated. "
+                "Install asksageclient>=1.42 for full feature support: "
+                "pip install asksageclient",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            logger.warning(
+                "AskSageClient not available, using deprecated httpx fallback",
+                extra={"model": model, "api_base": api_base},
+            )
             if client is None or not isinstance(client, HTTPHandler):
                 client = self._get_httpx_client(api_base=api_base, timeout=timeout)
 
+            start_time = time.time()
             try:
                 response = client.post(
                     api_base, headers=headers, json=data, timeout=timeout
                 )
                 response.raise_for_status()
+                duration = time.time() - start_time
+                _record_request_metrics(
+                    model=model, status="success", method="httpx", duration=duration
+                )
             except httpx.HTTPStatusError as e:
+                duration = time.time() - start_time
+                _record_request_metrics(
+                    model=model, status="error", method="httpx", duration=duration
+                )
                 error_headers = getattr(e, "headers", None)
                 error_response = getattr(e, "response", None)
                 if error_headers is None and error_response:
@@ -365,6 +521,10 @@ class AskSageChatCompletion(BaseLLM):
                     headers=error_headers,
                 )
             except Exception as e:
+                duration = time.time() - start_time
+                _record_request_metrics(
+                    model=model, status="error", method="httpx", duration=duration
+                )
                 raise AskSageError(status_code=500, message=str(e))
 
         # Transform response
@@ -403,11 +563,16 @@ class AskSageChatCompletion(BaseLLM):
 
         E37 Phase 3: Uses official AskSageClient when available.
         Since AskSageClient is synchronous, we run it in a thread pool executor.
+
+        E37 Phase 4: Adds Prometheus metrics and structured logging.
         """
         # Async completion - try AskSageClient first, fall back to httpx
         if ASKSAGECLIENT_AVAILABLE:
             # Use official AskSageClient (E37 Phase 3)
-            print("[DEBUG] Using AskSageClient for async completion (via thread pool)")
+            logger.debug(
+                "Using AskSageClient for async completion (via thread pool)",
+                extra={"model": model},
+            )
             try:
                 response_dict = await self._aquery_via_asksageclient(api_base, api_key, data)
                 response = self._dict_to_mock_response(response_dict)
@@ -419,17 +584,37 @@ class AskSageChatCompletion(BaseLLM):
                     status_code = e.response.status_code
                 raise AskSageError(status_code=status_code, message=error_msg)
         else:
-            # Fall back to direct httpx (legacy path)
-            print("[DEBUG] AskSageClient not available, using async httpx fallback")
+            # Fall back to direct httpx (legacy path - DEPRECATED)
+            # E37 Phase 6: This path is deprecated and will be removed in a future version
+            warnings.warn(
+                "Direct httpx fallback for AskSage is deprecated. "
+                "Install asksageclient>=1.42 for full feature support: "
+                "pip install asksageclient",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            logger.warning(
+                "AskSageClient not available, using deprecated async httpx fallback",
+                extra={"model": model, "api_base": api_base},
+            )
             if client is None or not isinstance(client, AsyncHTTPHandler):
                 client = self._get_async_httpx_client(api_base=api_base, timeout=timeout)
 
+            start_time = time.time()
             try:
                 response = await client.post(
                     api_base, headers=headers, json=data, timeout=timeout
                 )
                 response.raise_for_status()
+                duration = time.time() - start_time
+                _record_request_metrics(
+                    model=model, status="success", method="httpx_async", duration=duration
+                )
             except httpx.HTTPStatusError as e:
+                duration = time.time() - start_time
+                _record_request_metrics(
+                    model=model, status="error", method="httpx_async", duration=duration
+                )
                 error_headers = getattr(e, "headers", None)
                 error_response = getattr(e, "response", None)
                 if error_headers is None and error_response:
@@ -443,6 +628,10 @@ class AskSageChatCompletion(BaseLLM):
                     headers=error_headers,
                 )
             except Exception as e:
+                duration = time.time() - start_time
+                _record_request_metrics(
+                    model=model, status="error", method="httpx_async", duration=duration
+                )
                 raise AskSageError(status_code=500, message=str(e))
 
         # Transform response
