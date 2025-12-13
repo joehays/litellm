@@ -20,7 +20,7 @@ class AskSageError(BaseLLMException):
         self.status_code = status_code
         self.message = message
         self.headers = headers or {}
-        super().__init__(status_code=status_code, message=message, headers=headers)
+        super().__init__(status_code=status_code, message=message, headers=self.headers)
 
 
 class TokenCache:
