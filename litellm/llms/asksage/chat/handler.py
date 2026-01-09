@@ -15,15 +15,21 @@ E37 Phase 4: Adds MARS extensions:
 - Structured logging with secret redaction
 - Deprecation warnings for legacy httpx path
 
+S23: Adds Anthropic streaming support via /server/anthropic/messages endpoint.
+- Only Anthropic models (claude-*) support streaming
+- Non-Anthropic models continue using non-streaming /server/query endpoint
+- Uses Server-Sent Events (SSE) format
+
 Reference: https://docs.asksage.ai/docs/api-documentation/ask-sage-python-client.html
 """
 import asyncio
+import json
 import logging
 import os
 import time
 import warnings
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union
 
 import httpx
 
@@ -34,7 +40,15 @@ from litellm.llms.custom_httpx.http_handler import (
     _get_httpx_client,
     get_async_httpx_client,
 )
-from litellm.types.utils import ModelResponse
+from litellm.types.utils import (
+    Delta,
+    GenericStreamingChunk,
+    ModelResponse,
+    ModelResponseStream,
+    StreamingChoices,
+    Usage,
+    _generate_id,
+)
 from litellm.utils import ProviderConfigManager
 
 from ...base import BaseLLM
@@ -109,6 +123,220 @@ def _record_request_metrics(
             ASKSAGE_TOKENS_TOTAL.labels(model=model, type="prompt").inc(tokens["prompt_tokens"])
         if "completion_tokens" in tokens:
             ASKSAGE_TOKENS_TOTAL.labels(model=model, type="completion").inc(tokens["completion_tokens"])
+
+
+def _is_anthropic_model(model: str) -> bool:
+    """
+    Check if model is an Anthropic model that supports streaming.
+
+    AskSage's /server/anthropic/messages endpoint only supports Anthropic
+    (Claude) models for streaming. Non-Anthropic models must use the
+    standard non-streaming /server/query endpoint.
+
+    Args:
+        model: Model identifier (e.g., "claude-3-sonnet-20240229",
+               "asksage/claude-3-opus", "google-gpt-4")
+
+    Returns:
+        True if model is an Anthropic model and can use streaming endpoint
+    """
+    anthropic_patterns = [
+        "claude-",
+        "claude_",
+        "anthropic/claude",
+        "asksage/claude",
+    ]
+    model_lower = model.lower()
+    return any(
+        model_lower.startswith(p) or p in model_lower for p in anthropic_patterns
+    )
+
+
+class AskSageAnthropicStreamIterator:
+    """
+    Iterator for parsing Server-Sent Events (SSE) from AskSage's Anthropic endpoint.
+
+    Handles the standard Anthropic SSE streaming format:
+    - message_start: Initial message with metadata
+    - content_block_start: Start of a content block
+    - content_block_delta: Incremental content (text deltas)
+    - content_block_stop: End of content block
+    - message_delta: Final message update with stop_reason
+    - message_stop: End of stream (also signaled by [DONE])
+
+    Reference: https://docs.anthropic.com/en/api/messages-streaming
+    """
+
+    def __init__(
+        self,
+        streaming_response: Iterator,
+        sync_stream: bool,
+        model: str,
+    ) -> None:
+        """
+        Initialize the stream iterator.
+
+        Args:
+            streaming_response: Iterator of SSE lines from HTTP response
+            sync_stream: True for sync iteration, False for async
+            model: Model name for response metadata
+        """
+        self.streaming_response = streaming_response
+        self.response_iterator = self.streaming_response
+        self.sync_stream = sync_stream
+        self.model = model
+        self.response_id = _generate_id()
+
+    def _parse_sse_line(self, line: str) -> Optional[dict]:
+        """
+        Parse a Server-Sent Events line.
+
+        Args:
+            line: Raw SSE line (e.g., "data: {...}")
+
+        Returns:
+            Parsed JSON dict or None for non-data lines
+        """
+        if not line:
+            return None
+        if line.startswith(":"):
+            # SSE comment, skip
+            return None
+        if line.startswith("data: "):
+            data = line[6:]  # Remove "data: " prefix
+            if data == "[DONE]":
+                return {"type": "done"}
+            try:
+                return json.loads(data)
+            except json.JSONDecodeError:
+                logger.warning(f"Failed to parse SSE JSON: {data}")
+                return None
+        return None
+
+    def _chunk_to_response(self, chunk: dict) -> ModelResponseStream:
+        """
+        Convert an Anthropic SSE chunk to LiteLLM ModelResponseStream format.
+
+        Args:
+            chunk: Parsed Anthropic SSE chunk
+
+        Returns:
+            ModelResponseStream compatible with LiteLLM streaming
+        """
+        text = ""
+        finish_reason = ""
+        usage: Optional[Usage] = None
+
+        chunk_type = chunk.get("type", "")
+
+        if chunk_type == "content_block_delta":
+            # Extract text from delta
+            delta = chunk.get("delta", {})
+            if delta.get("type") == "text_delta":
+                text = delta.get("text", "")
+        elif chunk_type == "message_start":
+            # Initial message with metadata and input token count
+            message = chunk.get("message", {})
+            usage_data = message.get("usage", {})
+            if usage_data:
+                usage = Usage(
+                    prompt_tokens=usage_data.get("input_tokens", 0),
+                    completion_tokens=0,
+                    total_tokens=usage_data.get("input_tokens", 0),
+                )
+        elif chunk_type == "message_delta":
+            # Final message with stop_reason and output token count
+            delta = chunk.get("delta", {})
+            stop_reason = delta.get("stop_reason")
+            if stop_reason:
+                finish_reason = self._map_finish_reason(stop_reason)
+            usage_data = chunk.get("usage", {})
+            if usage_data:
+                usage = Usage(
+                    prompt_tokens=0,
+                    completion_tokens=usage_data.get("output_tokens", 0),
+                    total_tokens=usage_data.get("output_tokens", 0),
+                )
+        elif chunk_type == "done":
+            finish_reason = "stop"
+        # Other chunk types (content_block_start, content_block_stop, message_stop)
+        # don't contain content, just return empty response
+
+        return ModelResponseStream(
+            id=self.response_id,
+            model=self.model,
+            choices=[
+                StreamingChoices(
+                    index=0,
+                    delta=Delta(content=text),
+                    finish_reason=finish_reason if finish_reason else None,
+                )
+            ],
+            usage=usage,
+        )
+
+    def _map_finish_reason(self, stop_reason: str) -> str:
+        """Map Anthropic stop_reason to OpenAI finish_reason."""
+        mapping = {
+            "end_turn": "stop",
+            "stop_sequence": "stop",
+            "max_tokens": "length",
+            "tool_use": "tool_calls",
+        }
+        return mapping.get(stop_reason, "stop")
+
+    # Sync iterator protocol
+    def __iter__(self):
+        return self
+
+    def __next__(self) -> ModelResponseStream:
+        try:
+            while True:
+                line = next(self.response_iterator)
+                if isinstance(line, bytes):
+                    line = line.decode("utf-8")
+                line = line.strip()
+
+                chunk = self._parse_sse_line(line)
+                if chunk is not None:
+                    response = self._chunk_to_response(chunk)
+                    # Only return non-empty responses or finish signals
+                    if response.choices[0].delta.content or response.choices[0].finish_reason:
+                        return response
+                    if chunk.get("type") == "done":
+                        raise StopIteration
+        except StopIteration:
+            raise StopIteration
+        except Exception as e:
+            logger.error(f"Error in stream iteration: {e}")
+            raise
+
+    # Async iterator protocol
+    def __aiter__(self):
+        self.async_response_iterator = self.streaming_response.__aiter__()
+        return self
+
+    async def __anext__(self) -> ModelResponseStream:
+        try:
+            while True:
+                line = await self.async_response_iterator.__anext__()
+                if isinstance(line, bytes):
+                    line = line.decode("utf-8")
+                line = line.strip()
+
+                chunk = self._parse_sse_line(line)
+                if chunk is not None:
+                    response = self._chunk_to_response(chunk)
+                    # Only return non-empty responses or finish signals
+                    if response.choices[0].delta.content or response.choices[0].finish_reason:
+                        return response
+                    if chunk.get("type") == "done":
+                        raise StopAsyncIteration
+        except StopAsyncIteration:
+            raise StopAsyncIteration
+        except Exception as e:
+            logger.error(f"Error in async stream iteration: {e}")
+            raise
 
 
 class AskSageChatCompletion(BaseLLM):
@@ -225,6 +453,288 @@ class AskSageChatCompletion(BaseLLM):
             return get_async_httpx_client(
                 llm_provider=litellm.LlmProviders.ASKSAGE, params={"timeout": timeout}
             )
+
+    def _get_anthropic_base_url(self, api_base: str) -> str:
+        """
+        Get the Anthropic endpoint URL from the base URL.
+
+        Converts standard AskSage API base URL to Anthropic messages endpoint.
+        e.g., "https://api.example.com/server/query" -> "https://api.example.com/server/anthropic/messages"
+
+        Args:
+            api_base: Original API base URL
+
+        Returns:
+            URL for Anthropic messages endpoint
+        """
+        # Strip trailing /server/query if present
+        base = api_base.rstrip("/")
+        if base.endswith("/server/query"):
+            base = base[:-13]  # Remove "/server/query"
+
+        return f"{base}/server/anthropic/messages"
+
+    def _transform_to_anthropic_format(
+        self,
+        model: str,
+        messages: List[Dict],
+        optional_params: Dict,
+    ) -> Dict:
+        """
+        Transform LiteLLM messages to Anthropic API format.
+
+        Args:
+            model: Model identifier
+            messages: List of message dicts with role/content
+            optional_params: Additional parameters
+
+        Returns:
+            Request payload for Anthropic API
+        """
+        # Extract system messages and convert to Anthropic format
+        system_content = ""
+        anthropic_messages = []
+
+        for msg in messages:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+
+            if role == "system":
+                # Anthropic uses separate system parameter
+                if system_content:
+                    system_content += "\n"
+                system_content += content
+            elif role in ("user", "assistant"):
+                anthropic_messages.append({
+                    "role": role,
+                    "content": content,
+                })
+
+        payload: Dict[str, Any] = {
+            "model": model,
+            "messages": anthropic_messages,
+            "stream": True,
+            "max_tokens": optional_params.get("max_tokens", 1024),
+        }
+
+        if system_content:
+            payload["system"] = system_content
+
+        # Optional parameters
+        if "temperature" in optional_params:
+            payload["temperature"] = optional_params["temperature"]
+
+        return payload
+
+    async def _astream_anthropic(
+        self,
+        model: str,
+        messages: List[Dict],
+        api_base: str,
+        api_key: str,
+        optional_params: Dict,
+        timeout: Union[float, httpx.Timeout],
+        logging_obj: Any,
+    ):
+        """
+        Stream completion via AskSage's Anthropic endpoint (async).
+
+        Uses Server-Sent Events (SSE) format from /server/anthropic/messages.
+
+        Args:
+            model: Model identifier
+            messages: Message list
+            api_base: Base URL for AskSage API
+            api_key: Bearer token
+            optional_params: Additional parameters
+            timeout: Request timeout
+            logging_obj: Logging object for pre/post call
+
+        Returns:
+            CustomStreamWrapper wrapping the stream iterator
+        """
+        from litellm.litellm_core_utils.streaming_handler import CustomStreamWrapper
+
+        url = self._get_anthropic_base_url(api_base)
+        payload = self._transform_to_anthropic_format(model, messages, optional_params)
+
+        # Use Authorization header for Anthropic endpoint
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+        }
+
+        logger.debug(
+            "AskSage Anthropic streaming request",
+            extra={
+                "model": model,
+                "url": url,
+                "api_key": _redact_api_key(api_key),
+            },
+        )
+
+        # Get async client with TLS configuration
+        client = self._get_async_httpx_client(api_base, timeout)
+
+        start_time = time.time()
+        try:
+            response = await client.post(
+                url,
+                json=payload,
+                headers=headers,
+                timeout=timeout,
+            )
+            response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            duration = time.time() - start_time
+            _record_request_metrics(
+                model=model, status="error", method="anthropic_stream", duration=duration
+            )
+            logger.error(
+                "AskSage Anthropic streaming failed",
+                extra={
+                    "model": model,
+                    "status_code": e.response.status_code,
+                    "duration": duration,
+                },
+            )
+            raise AskSageError(
+                status_code=e.response.status_code,
+                message=await e.response.aread() if hasattr(e.response, "aread") else str(e),
+            )
+        except Exception as e:
+            duration = time.time() - start_time
+            _record_request_metrics(
+                model=model, status="error", method="anthropic_stream", duration=duration
+            )
+            raise AskSageError(status_code=500, message=str(e))
+
+        # Record metrics (timing is approximate for streaming)
+        duration = time.time() - start_time
+        _record_request_metrics(
+            model=model, status="success", method="anthropic_stream", duration=duration
+        )
+
+        # Create stream iterator
+        stream_iterator = AskSageAnthropicStreamIterator(
+            streaming_response=response.aiter_lines(),
+            sync_stream=False,
+            model=model,
+        )
+
+        # Wrap with CustomStreamWrapper for consistent LiteLLM interface
+        return CustomStreamWrapper(
+            completion_stream=stream_iterator,
+            model=model,
+            custom_llm_provider="asksage",
+            logging_obj=logging_obj,
+        )
+
+    def _stream_anthropic_sync(
+        self,
+        model: str,
+        messages: List[Dict],
+        api_base: str,
+        api_key: str,
+        optional_params: Dict,
+        timeout: Union[float, httpx.Timeout],
+        logging_obj: Any,
+    ):
+        """
+        Stream completion via AskSage's Anthropic endpoint (sync).
+
+        Uses Server-Sent Events (SSE) format from /server/anthropic/messages.
+
+        Args:
+            model: Model identifier
+            messages: Message list
+            api_base: Base URL for AskSage API
+            api_key: Bearer token
+            optional_params: Additional parameters
+            timeout: Request timeout
+            logging_obj: Logging object for pre/post call
+
+        Returns:
+            CustomStreamWrapper wrapping the stream iterator
+        """
+        from litellm.litellm_core_utils.streaming_handler import CustomStreamWrapper
+
+        url = self._get_anthropic_base_url(api_base)
+        payload = self._transform_to_anthropic_format(model, messages, optional_params)
+
+        # Use Authorization header for Anthropic endpoint
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+        }
+
+        logger.debug(
+            "AskSage Anthropic streaming request (sync)",
+            extra={
+                "model": model,
+                "url": url,
+                "api_key": _redact_api_key(api_key),
+            },
+        )
+
+        # Get sync client with TLS configuration
+        client = self._get_httpx_client(api_base, timeout)
+
+        start_time = time.time()
+        try:
+            response = client.post(
+                url,
+                json=payload,
+                headers=headers,
+                timeout=timeout,
+            )
+            response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            duration = time.time() - start_time
+            _record_request_metrics(
+                model=model, status="error", method="anthropic_stream_sync", duration=duration
+            )
+            logger.error(
+                "AskSage Anthropic streaming failed (sync)",
+                extra={
+                    "model": model,
+                    "status_code": e.response.status_code,
+                    "duration": duration,
+                },
+            )
+            raise AskSageError(
+                status_code=e.response.status_code,
+                message=e.response.read(),
+            )
+        except Exception as e:
+            duration = time.time() - start_time
+            _record_request_metrics(
+                model=model, status="error", method="anthropic_stream_sync", duration=duration
+            )
+            raise AskSageError(status_code=500, message=str(e))
+
+        # Record metrics (timing is approximate for streaming)
+        duration = time.time() - start_time
+        _record_request_metrics(
+            model=model, status="success", method="anthropic_stream_sync", duration=duration
+        )
+
+        # Create stream iterator
+        stream_iterator = AskSageAnthropicStreamIterator(
+            streaming_response=response.iter_lines(),
+            sync_stream=True,
+            model=model,
+        )
+
+        # Wrap with CustomStreamWrapper for consistent LiteLLM interface
+        return CustomStreamWrapper(
+            completion_stream=stream_iterator,
+            model=model,
+            custom_llm_provider="asksage",
+            logging_obj=logging_obj,
+        )
 
     def _query_via_asksageclient(
         self, api_base: str, api_key: str, data: dict
@@ -445,6 +955,35 @@ class AskSageChatCompletion(BaseLLM):
             },
         )
 
+        # Check for streaming support (S23: Anthropic models only)
+        stream = optional_params.get("stream", False)
+        if stream and _is_anthropic_model(model):
+            logger.debug(
+                "Routing to Anthropic streaming endpoint",
+                extra={"model": model, "acompletion": acompletion},
+            )
+            if acompletion is True:
+                return self._astream_anthropic(
+                    model=model,
+                    messages=messages,
+                    api_base=api_base,
+                    api_key=api_key,
+                    optional_params=optional_params,
+                    timeout=timeout,
+                    logging_obj=logging_obj,
+                )
+            else:
+                return self._stream_anthropic_sync(
+                    model=model,
+                    messages=messages,
+                    api_base=api_base,
+                    api_key=api_key,
+                    optional_params=optional_params,
+                    timeout=timeout,
+                    logging_obj=logging_obj,
+                )
+
+        # Non-streaming or non-Anthropic models use standard path
         if acompletion is True:
             return self.acompletion(
                 model=model,

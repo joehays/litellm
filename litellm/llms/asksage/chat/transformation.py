@@ -50,15 +50,15 @@ class AskSageConfig(BaseConfig):
         (ADR-0039). Values: "low", "medium", "high". Enables dedicated reasoning
         phase before response generation.
 
-        Note: Streaming is NOT supported by AskSage API or asksageclient v1.42.
-        If stream=True is passed, it will be ignored and a non-streaming response
-        will be returned. The "stream" param is included for LiteLLM compatibility
-        but has no effect on actual API behavior.
+        Note on Streaming (S23):
+        - Anthropic models (claude-*) support streaming via /server/anthropic/messages
+        - Non-Anthropic models do NOT support streaming (stream=True is ignored)
+        - See handler.py for streaming implementation details
         """
         return [
             "temperature",
             "max_tokens",
-            "stream",  # Ignored - AskSage/asksageclient v1.42 does not support streaming
+            "stream",  # Supported for Anthropic models only (S23)
             "reasoning_effort",  # AskSage Extended Thinking (ADR-0039)
             "tools",  # Function calling tools
             "tool_choice",  # Tool selection mode
