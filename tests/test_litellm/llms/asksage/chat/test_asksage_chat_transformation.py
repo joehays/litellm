@@ -198,6 +198,62 @@ class TestAskSageTransformRequest:
         assert "You are a helpful assistant." in result["system_prompt"]
         assert "You always respond concisely." in result["system_prompt"]
 
+    def test_transform_request_with_multimodal_content(self):
+        """Test transformation with multi-modal content (content as list of blocks).
+
+        Claude Code CLI sends messages with content as a list of content blocks
+        instead of a plain string, e.g.:
+        {"role": "system", "content": [{"type": "text", "text": "You are..."}]}
+        """
+        config = AskSageConfig()
+        messages = [
+            {
+                "role": "system",
+                "content": [
+                    {"type": "text", "text": "You are a helpful assistant."},
+                    {"type": "text", "text": "Always be concise."},
+                ],
+            },
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": "Hello!"}],
+            },
+        ]
+
+        result = config.transform_request(
+            model="google-claude-4-opus",
+            messages=cast(list[AllMessageValues], messages),
+            optional_params={},
+            litellm_params={},
+            headers={},
+        )
+
+        assert result["message"] == "Hello!"
+        assert "You are a helpful assistant." in result["system_prompt"]
+        assert "Always be concise." in result["system_prompt"]
+
+    def test_transform_request_with_mixed_content_formats(self):
+        """Test transformation with mixed string and list content formats."""
+        config = AskSageConfig()
+        messages = [
+            {"role": "system", "content": "You are a helpful assistant."},  # string
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": "Hello!"}],  # list
+            },
+        ]
+
+        result = config.transform_request(
+            model="google-claude-4-opus",
+            messages=cast(list[AllMessageValues], messages),
+            optional_params={},
+            litellm_params={},
+            headers={},
+        )
+
+        assert result["message"] == "Hello!"
+        assert result["system_prompt"] == "You are a helpful assistant."
+
     def test_transform_request_with_dataset(self):
         """Test transformation with dataset parameter"""
         config = AskSageConfig()

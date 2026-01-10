@@ -179,14 +179,34 @@ class AskSageConfig(BaseConfig):
         system_messages = []
         user_message = ""
 
+        def extract_text_content(content) -> str:
+            """Extract text from content that may be string or list of content blocks."""
+            if isinstance(content, str):
+                return content
+            elif isinstance(content, list):
+                # Handle multi-modal content: [{"type": "text", "text": "..."}, ...]
+                text_parts = []
+                for block in content:
+                    if isinstance(block, dict):
+                        if block.get("type") == "text":
+                            text_parts.append(block.get("text", ""))
+                        elif "text" in block:
+                            text_parts.append(block.get("text", ""))
+                    elif isinstance(block, str):
+                        text_parts.append(block)
+                return "\n".join(text_parts)
+            return str(content) if content else ""
+
         for msg in messages:
             role = msg.get("role")
             content = msg.get("content", "")
+            text_content = extract_text_content(content)
 
             if role == "system":
-                system_messages.append(content)
+                if text_content:
+                    system_messages.append(text_content)
             elif role == "user":
-                user_message = content  # Use last user message
+                user_message = text_content  # Use last user message
             elif role == "assistant":
                 # AskSage doesn't support conversation history in single endpoint
                 # We'll append assistant message to context if needed
