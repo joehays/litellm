@@ -152,6 +152,8 @@ def _is_anthropic_model(model: str) -> bool:
     )
 
 
+
+
 class AskSageAnthropicStreamIterator:
     """
     Iterator for parsing Server-Sent Events (SSE) from AskSage's Anthropic endpoint.
@@ -456,23 +458,29 @@ class AskSageChatCompletion(BaseLLM):
 
     def _get_anthropic_base_url(self, api_base: str) -> str:
         """
-        Get the Anthropic endpoint URL from the base URL.
+        Get the Anthropic streaming endpoint URL from the base URL.
 
-        Converts standard AskSage API base URL to Anthropic messages endpoint.
-        e.g., "https://api.example.com/server/query" -> "https://api.example.com/server/anthropic/messages"
+        CAPRA has added a new streaming endpoint at /server/anthropic.
+
+        CAPRA endpoint mapping:
+        - Non-streaming: https://api.capra.flankspeed.us.navy.mil/server/query
+        - Streaming: https://api.capra.flankspeed.us.navy.mil/server/anthropic
 
         Args:
             api_base: Original API base URL
 
         Returns:
-            URL for Anthropic messages endpoint
+            URL for Anthropic streaming endpoint
         """
-        # Strip trailing /server/query if present
+        # For all AskSage endpoints, construct from base URL
         base = api_base.rstrip("/")
-        if base.endswith("/server/query"):
-            base = base[:-13]  # Remove "/server/query"
+        # Remove common path suffixes if present
+        for suffix in ["/server/query", "/server/v1", "/v1"]:
+            if base.endswith(suffix):
+                base = base[:-len(suffix)]
+                break
 
-        return f"{base}/server/anthropic/messages"
+        return f"{base}/server/anthropic"
 
     def _transform_to_anthropic_format(
         self,
@@ -956,6 +964,7 @@ class AskSageChatCompletion(BaseLLM):
         )
 
         # Check for streaming support (S23: Anthropic models only)
+        # CAPRA now supports streaming via /server/anthropic endpoint
         stream = optional_params.get("stream", False)
         if stream and _is_anthropic_model(model):
             logger.debug(

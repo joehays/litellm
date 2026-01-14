@@ -136,7 +136,8 @@ class AskSageConfig(BaseConfig):
         Returns:
             Updated headers dict with x-access-tokens
         """
-        # Set x-access-tokens header (CAPRA-specific, no "Bearer" prefix)
+        # Set x-access-tokens header (CAPRA JWT token, no "Bearer" prefix)
+        # CAPRA uses JWT tokens that are refreshed every 24 hours via get_capra_access_token.sh
         if api_key:
             headers["x-access-tokens"] = api_key
             print(
