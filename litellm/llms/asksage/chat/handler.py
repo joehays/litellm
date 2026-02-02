@@ -139,7 +139,19 @@ def _is_anthropic_model(model: str) -> bool:
 
     Returns:
         True if model is an Anthropic model and can use streaming endpoint
+
+    Environment Variables:
+        ASKSAGE_DISABLE_ANTHROPIC_STREAMING: Set to "1" or "true" to disable
+            the Anthropic streaming path and force all requests through
+            the standard /server/query endpoint. Use this if the
+            /server/anthropic endpoint is not available.
     """
+    # Allow disabling Anthropic streaming path via environment variable
+    # This is useful when /server/anthropic endpoint is not available (404)
+    disable_streaming = os.environ.get("ASKSAGE_DISABLE_ANTHROPIC_STREAMING", "").lower()
+    if disable_streaming in ("1", "true", "yes"):
+        return False
+
     anthropic_patterns = [
         "claude-",
         "claude_",
@@ -456,6 +468,66 @@ class AskSageChatCompletion(BaseLLM):
                 llm_provider=litellm.LlmProviders.ASKSAGE, params={"timeout": timeout}
             )
 
+    async def _fake_stream_from_response(
+        self, response_coro, model: str
+    ):
+        """
+        Convert a non-streaming response to a fake streaming response.
+
+        When streaming is requested but Anthropic streaming endpoint is disabled
+        (ASKSAGE_DISABLE_ANTHROPIC_STREAMING=1), we need to wrap the non-streaming
+        response in an async generator that yields ModelResponseStream chunks.
+
+        This allows Claude Code CLI (which always uses streaming) to work with
+        the /server/query endpoint that doesn't support streaming.
+
+        The Anthropic pass-through adapter expects ModelResponseStream objects
+        with .choices[0] having a .delta attribute for streaming content.
+
+        Args:
+            response_coro: Awaitable that returns ModelResponse
+            model: Model identifier for the response
+
+        Yields:
+            ModelResponseStream objects that the Anthropic adapter can transform
+        """
+        # Await the actual response
+        response = await response_coro
+
+        # Extract content from the response
+        content = ""
+        if hasattr(response, "choices") and response.choices:
+            choice = response.choices[0]
+            if hasattr(choice, "message") and choice.message:
+                content = choice.message.content or ""
+
+        # Get response ID for streaming chunks
+        response_id = getattr(response, "id", _generate_id())
+
+        # Yield first chunk with content
+        yield ModelResponseStream(
+            id=response_id,
+            choices=[
+                StreamingChoices(
+                    finish_reason=None,
+                    index=0,
+                    delta=Delta(content=content, role="assistant"),
+                )
+            ],
+        )
+
+        # Yield final chunk with finish_reason
+        yield ModelResponseStream(
+            id=response_id,
+            choices=[
+                StreamingChoices(
+                    finish_reason="stop",
+                    index=0,
+                    delta=Delta(content=""),
+                )
+            ],
+        )
+
     def _get_anthropic_base_url(self, api_base: str) -> str:
         """
         Get the Anthropic streaming endpoint URL from the base URL.
@@ -507,15 +579,29 @@ class AskSageChatCompletion(BaseLLM):
             role = msg.get("role", "")
             content = msg.get("content", "")
 
+            # Handle content that may be a list of content blocks (Anthropic format)
+            # e.g., [{"type": "text", "text": "..."}]
+            if isinstance(content, list):
+                # Extract text from content blocks
+                text_parts = []
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        text_parts.append(block.get("text", ""))
+                    elif isinstance(block, str):
+                        text_parts.append(block)
+                content_str = "\n".join(text_parts)
+            else:
+                content_str = content
+
             if role == "system":
                 # Anthropic uses separate system parameter
                 if system_content:
                     system_content += "\n"
-                system_content += content
+                system_content += content_str
             elif role in ("user", "assistant"):
                 anthropic_messages.append({
                     "role": role,
-                    "content": content,
+                    "content": content_str,
                 })
 
         payload: Dict[str, Any] = {
@@ -994,6 +1080,31 @@ class AskSageChatCompletion(BaseLLM):
 
         # Non-streaming or non-Anthropic models use standard path
         if acompletion is True:
+            # When streaming is requested but Anthropic streaming is disabled,
+            # wrap the response in a fake streaming generator
+            if stream and not _is_anthropic_model(model):
+                logger.debug(
+                    "Using fake streaming wrapper (Anthropic streaming disabled)",
+                    extra={"model": model},
+                )
+                response_coro = self.acompletion(
+                    model=model,
+                    messages=messages,
+                    api_base=api_base,
+                    data=data,
+                    headers=headers,
+                    model_response=model_response,
+                    print_verbose=print_verbose,
+                    encoding=encoding,
+                    api_key=api_key,
+                    logging_obj=logging_obj,
+                    optional_params=optional_params,
+                    timeout=timeout,
+                    client=client,
+                    litellm_params=litellm_params,
+                )
+                return self._fake_stream_from_response(response_coro, model)
+
             return self.acompletion(
                 model=model,
                 messages=messages,
