@@ -76,6 +76,43 @@ class TestIsAnthropicModel:
         assert _is_anthropic_model("asksage/gpt-4") is False
         assert _is_anthropic_model("asksage/gemini-pro") is False
 
+    def test_disable_streaming_env_var_1(self):
+        """Test ASKSAGE_DISABLE_ANTHROPIC_STREAMING=1 disables streaming"""
+        with patch.dict(os.environ, {"ASKSAGE_DISABLE_ANTHROPIC_STREAMING": "1"}):
+            assert _is_anthropic_model("claude-3-sonnet-20240229") is False
+
+    def test_disable_streaming_env_var_true(self):
+        """Test ASKSAGE_DISABLE_ANTHROPIC_STREAMING=true disables streaming"""
+        with patch.dict(os.environ, {"ASKSAGE_DISABLE_ANTHROPIC_STREAMING": "true"}):
+            assert _is_anthropic_model("claude-3-opus") is False
+
+    def test_disable_streaming_env_var_yes(self):
+        """Test ASKSAGE_DISABLE_ANTHROPIC_STREAMING=yes disables streaming"""
+        with patch.dict(os.environ, {"ASKSAGE_DISABLE_ANTHROPIC_STREAMING": "yes"}):
+            assert _is_anthropic_model("claude-4-opus") is False
+
+    def test_disable_streaming_env_var_case_insensitive(self):
+        """Test ASKSAGE_DISABLE_ANTHROPIC_STREAMING is case insensitive"""
+        with patch.dict(os.environ, {"ASKSAGE_DISABLE_ANTHROPIC_STREAMING": "TRUE"}):
+            assert _is_anthropic_model("claude-3-sonnet") is False
+
+    def test_disable_streaming_env_var_0_does_not_disable(self):
+        """Test ASKSAGE_DISABLE_ANTHROPIC_STREAMING=0 does NOT disable streaming"""
+        with patch.dict(os.environ, {"ASKSAGE_DISABLE_ANTHROPIC_STREAMING": "0"}):
+            assert _is_anthropic_model("claude-3-sonnet-20240229") is True
+
+    def test_disable_streaming_env_var_empty_does_not_disable(self):
+        """Test empty ASKSAGE_DISABLE_ANTHROPIC_STREAMING does NOT disable"""
+        with patch.dict(os.environ, {"ASKSAGE_DISABLE_ANTHROPIC_STREAMING": ""}):
+            assert _is_anthropic_model("claude-3-sonnet-20240229") is True
+
+    def test_streaming_enabled_when_env_var_not_set(self):
+        """Test streaming is enabled when env var is not set"""
+        env = os.environ.copy()
+        env.pop("ASKSAGE_DISABLE_ANTHROPIC_STREAMING", None)
+        with patch.dict(os.environ, env, clear=True):
+            assert _is_anthropic_model("claude-3-sonnet-20240229") is True
+
 
 class TestAskSageAnthropicStreamIterator:
     """Test suite for AskSageAnthropicStreamIterator"""
@@ -242,28 +279,54 @@ class TestAskSageAnthropicStreamIterator:
 
 
 class TestGetAnthropicBaseUrl:
-    """Test suite for _get_anthropic_base_url method"""
+    """Test suite for _get_anthropic_base_url method
+
+    CAPRA's Anthropic streaming endpoint is at /server/anthropic/v1/messages
+    (not /server/anthropic/messages). This is the full path required for
+    direct HTTP calls since LiteLLM doesn't use the Anthropic SDK.
+    """
 
     def test_converts_server_query_url(self):
-        """Test conversion from /server/query to /server/anthropic/messages"""
+        """Test conversion from /server/query to /server/anthropic/v1/messages"""
         handler = AskSageChatCompletion()
 
         url = handler._get_anthropic_base_url("https://api.example.com/server/query")
-        assert url == "https://api.example.com/server/anthropic/messages"
+        assert url == "https://api.example.com/server/anthropic/v1/messages"
 
     def test_handles_trailing_slash(self):
         """Test URL with trailing slash"""
         handler = AskSageChatCompletion()
 
         url = handler._get_anthropic_base_url("https://api.example.com/server/query/")
-        assert url == "https://api.example.com/server/anthropic/messages"
+        assert url == "https://api.example.com/server/anthropic/v1/messages"
 
     def test_handles_base_url_without_server_query(self):
         """Test URL without /server/query suffix"""
         handler = AskSageChatCompletion()
 
         url = handler._get_anthropic_base_url("https://api.example.com")
-        assert url == "https://api.example.com/server/anthropic/messages"
+        assert url == "https://api.example.com/server/anthropic/v1/messages"
+
+    def test_handles_capra_flankspeed_url(self):
+        """Test CAPRA flankspeed production URL"""
+        handler = AskSageChatCompletion()
+
+        url = handler._get_anthropic_base_url("https://api.capra.flankspeed.us.navy.mil/server/query")
+        assert url == "https://api.capra.flankspeed.us.navy.mil/server/anthropic/v1/messages"
+
+    def test_strips_v1_suffix_before_constructing(self):
+        """Test that /v1 suffix is stripped before constructing anthropic URL"""
+        handler = AskSageChatCompletion()
+
+        url = handler._get_anthropic_base_url("https://api.example.com/v1")
+        assert url == "https://api.example.com/server/anthropic/v1/messages"
+
+    def test_strips_server_v1_suffix(self):
+        """Test that /server/v1 suffix is stripped"""
+        handler = AskSageChatCompletion()
+
+        url = handler._get_anthropic_base_url("https://api.example.com/server/v1")
+        assert url == "https://api.example.com/server/anthropic/v1/messages"
 
 
 class TestTransformToAnthropicFormat:

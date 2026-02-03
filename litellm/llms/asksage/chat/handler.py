@@ -552,7 +552,8 @@ class AskSageChatCompletion(BaseLLM):
                 base = base[:-len(suffix)]
                 break
 
-        return f"{base}/server/anthropic"
+        # Full path required - LiteLLM makes direct HTTP calls (not via Anthropic SDK)
+        return f"{base}/server/anthropic/v1/messages"
 
     def _transform_to_anthropic_format(
         self,
