@@ -2470,6 +2470,7 @@ class LlmProviders(str, Enum):
     OVHCLOUD = "ovhcloud"
     LEMONADE = "lemonade"
     ASKSAGE = "asksage"
+    GENAI_MIL = "genai_mil"
 
 
 # Create a set of all provider values for quick lookup

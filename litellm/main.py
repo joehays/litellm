@@ -142,6 +142,7 @@ from .litellm_core_utils.prompt_templates.factory import (
 from .litellm_core_utils.streaming_chunk_builder_utils import ChunkProcessor
 from .llms.anthropic.chat import AnthropicChatCompletion
 from .llms.asksage.chat import AskSageChatCompletion
+from .llms.genai_mil.chat import GenAIMilChatCompletion
 from .llms.azure.audio_transcriptions import AzureAudioTranscription
 from .llms.azure.azure import AzureChatCompletion, _check_dynamic_azure_params
 from .llms.azure.chat.o_series_handler import AzureOpenAIO1ChatCompletion
@@ -241,6 +242,7 @@ groq_chat_completions = GroqChatCompletion()
 azure_ai_embedding = AzureAIEmbedding()
 anthropic_chat_completions = AnthropicChatCompletion()
 asksage_chat_completions = AskSageChatCompletion()
+genai_mil_chat_completions = GenAIMilChatCompletion()
 azure_chat_completions = AzureChatCompletion()
 azure_o1_chat_completions = AzureOpenAIO1ChatCompletion()
 azure_text_completions = AzureTextCompletion()
@@ -2378,6 +2380,51 @@ def completion(  # type: ignore # noqa: PLR0915
                 api_base += "/server/query"
 
             response = asksage_chat_completions.completion(
+                model=model,
+                messages=messages,
+                api_base=api_base,
+                acompletion=acompletion,
+                custom_prompt_dict=litellm.custom_prompt_dict,
+                model_response=model_response,
+                print_verbose=print_verbose,
+                optional_params=optional_params,
+                litellm_params=litellm_params,
+                logger_fn=logger_fn,
+                encoding=encoding,
+                api_key=api_key,
+                logging_obj=logging,
+                headers=headers,
+                timeout=timeout,
+                client=client,
+                custom_llm_provider=custom_llm_provider,
+            )
+
+            if optional_params.get("stream", False) or acompletion is True:
+                ## LOGGING
+                logging.post_call(
+                    input=messages,
+                    api_key=api_key,
+                    original_response=response,
+                )
+            response = response
+        elif custom_llm_provider == "genai_mil":
+            # GenAI.mil - US Government AI Gateway (OpenAI-compatible)
+            api_key = (
+                api_key
+                or litellm.api_key
+                or get_secret_str("GENAI_MIL_API_KEY")
+                or get_secret_str("STARK_API_KEY")
+            )
+
+            # Set API base - default to GenAI.mil production endpoint
+            api_base = (
+                api_base
+                or litellm.api_base
+                or get_secret_str("GENAI_MIL_API_BASE")
+                or "https://api.genai.mil/v1"
+            )
+
+            response = genai_mil_chat_completions.completion(
                 model=model,
                 messages=messages,
                 api_base=api_base,

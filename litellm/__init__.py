@@ -450,6 +450,7 @@ mistral_chat_models: Set = set()
 text_completion_codestral_models: Set = set()
 anthropic_models: Set = set()
 asksage_models: Set = set()
+genai_mil_models: Set = set()
 openrouter_models: Set = set()
 datarobot_models: Set = set()
 vertex_language_models: Set = set()
@@ -866,6 +867,7 @@ models_by_provider: dict = {
     "cohere_chat": cohere_chat_models,
     "anthropic": anthropic_models,
     "asksage": asksage_models,
+    "genai_mil": genai_mil_models,
     "replicate": replicate_models,
     "huggingface": huggingface_models,
     "together_ai": together_ai_models,
