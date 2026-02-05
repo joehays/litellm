@@ -5,7 +5,7 @@ set -e
 
 # Set environment variables
 export ASKSAGE_API_KEY="$CAPRA_API_TOKEN"
-export ASKSAGE_CA_CERT_PATH="$HOME/dev/joe-docs/dev-ops/Certificates_PKCS7_v5_14_DoD/DoD_PKE_CA_chain.pem"
+export ASKSAGE_CA_CERT_PATH="${ASKSAGE_CA_CERT_PATH:-$HOME/.mars/credentials/dod-pke-ca-chain.pem}"
 export PYTHONPATH=.
 
 echo "Testing AskSage provider with CAPRA..."

@@ -16,7 +16,7 @@ print("="*70 + "\n")
 
 # Test 1: Direct token script execution
 print("=== Test 1: Direct Script Execution ===")
-token_script = os.path.expanduser("~/dev/joe-docs/dev-ops/get_capra_access_token.sh")
+token_script = os.path.expanduser(os.environ.get("ASKSAGE_TOKEN_SCRIPT", "~/.mars/credentials/capra-get-access-token.sh"))
 
 if not os.path.exists(token_script):
     print(f"❌ Token script not found: {token_script}")
@@ -74,7 +74,7 @@ payload = {
     "message": "Hello World",
     "dataset": ["none"]
 }
-ca_cert_path = os.path.expanduser("~/dev/joe-docs/dev-ops/Certificates_PKCS7_v5_14_DoD/DoD_PKE_CA_chain.pem")
+ca_cert_path = os.path.expanduser(os.environ.get("ASKSAGE_CA_CERT_PATH", "~/.mars/credentials/dod-pke-ca-chain.pem"))
 
 try:
     print("   Calling CAPRA /server/get-models...")

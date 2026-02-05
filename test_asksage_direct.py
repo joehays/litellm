@@ -17,7 +17,7 @@ print("="*70 + "\n")
 # Check prerequisites
 print("=== Prerequisites Check ===")
 api_key = os.environ.get("CAPRA_API_TOKEN")
-ca_cert_path = os.path.expanduser("~/dev/joe-docs/dev-ops/Certificates_PKCS7_v5_14_DoD/DoD_PKE_CA_chain.pem")
+ca_cert_path = os.path.expanduser(os.environ.get("ASKSAGE_CA_CERT_PATH", "~/.mars/credentials/dod-pke-ca-chain.pem"))
 
 if not api_key:
     print("❌ CAPRA_API_TOKEN not set")

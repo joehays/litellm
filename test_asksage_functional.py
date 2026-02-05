@@ -12,7 +12,7 @@ Prerequisites:
 
 Usage:
     export ASKSAGE_API_KEY="your_bearer_token"
-    export ASKSAGE_CA_CERT_PATH="/path/to/DoD_PKE_CA_chain.pem"
+    export ASKSAGE_CA_CERT_PATH="/path/to/dod-pke-ca-chain.pem"
     python test_asksage_functional.py
 """
 import os
