@@ -35,7 +35,7 @@ import os
 
 # Configure CAPRA
 os.environ["ASKSAGE_API_KEY"] = "your-capra-token"
-os.environ["ASKSAGE_CA_CERT_PATH"] = "/path/to/DoD_PKE_CA_chain.pem"
+os.environ["ASKSAGE_CA_CERT_PATH"] = "/path/to/dod-pke-ca-chain.pem"
 
 response = litellm.completion(
     model="asksage/gpt-4o-mini",
@@ -98,7 +98,7 @@ Configure LiteLLM to use the script:
 
 ```bash
 export ASKSAGE_TOKEN_COMMAND="$HOME/scripts/get_capra_token.sh"
-export ASKSAGE_CA_CERT_PATH="$HOME/certs/DoD_PKE_CA_chain.pem"
+export ASKSAGE_CA_CERT_PATH="$HOME/certs/dod-pke-ca-chain.pem"
 ```
 
 **Benefits**:
@@ -250,13 +250,13 @@ export ASKSAGE_API_KEY="your-token-here"
 
 **Solution**:
 ```bash
-export ASKSAGE_CA_CERT_PATH="/path/to/DoD_PKE_CA_chain.pem"
+export ASKSAGE_CA_CERT_PATH="/path/to/dod-pke-ca-chain.pem"
 ```
 
 **Download DoD Certificates**:
 - Visit: https://public.cyber.mil/pki-pke/
 - Download: "DoD PKE CA Certificates (PKCS#7)"
-- Extract: DoD_PKE_CA_chain.pem
+- Extract: dod-pke-ca-chain.pem
 
 ### Error: "ASKSAGE_TOKEN_COMMAND timed out"
 
@@ -329,7 +329,7 @@ export ASKSAGE_API_KEY="fallback-static-token"
 export ASKSAGE_API_BASE="https://api.capra.flankspeed.us.navy.mil/server/query"
 
 # DoD TLS certificate
-export ASKSAGE_CA_CERT_PATH="$HOME/certs/DoD_PKE_CA_chain.pem"
+export ASKSAGE_CA_CERT_PATH="$HOME/certs/dod-pke-ca-chain.pem"
 
 # Run your application
 python your_app.py
