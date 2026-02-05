@@ -1,0 +1,12 @@
+# .gitremotes.yml — Declarative Git Remote Definitions
+# Variables: ${VAR} resolved from environment at apply time.
+# Apply:  mars remotes apply [--recursive]
+remotes:
+  origin:
+    url: "git@gitlab-local:mars/external/litellm.git"
+  org:
+    url: "git@${MARS_ORG_GITLAB_HOST}:${MARS_ORG_GITLAB_NS}/external/litellm.git"
+  github:
+    url: "git@github.com:${MARS_GITHUB_USER}/litellm.git"
+  upstream:
+    url: "git@github.com:BerriAI/litellm.git"
