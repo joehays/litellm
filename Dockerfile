@@ -24,7 +24,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Add Rust to PATH for all subsequent commands
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-RUN pip install --upgrade pip>=24.3.1 && \
+RUN rm -rf /usr/local/lib/python3.12/site-packages/pip* && \
+    python -m ensurepip --upgrade && \
+    pip install --upgrade "pip>=24.3.1" && \
     pip install build
 
 # Copy the current directory contents into the container at /app
