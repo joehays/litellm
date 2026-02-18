@@ -67,7 +67,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Upgrade pip to fix CVE-2025-8869
-RUN pip install --upgrade pip>=24.3.1
+# Remove stale pip first — fuse-overlayfs can't rmdir lower-layer directories
+RUN rm -rf /usr/local/lib/python3.12/site-packages/pip* && \
+    python -m ensurepip --upgrade && \
+    pip install --upgrade "pip>=24.3.1"
 
 WORKDIR /app
 # Copy the current directory contents into the container at /app
